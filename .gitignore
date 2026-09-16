@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+*.sqlite3
+backend/data/procesados/
+backend/data/rechazados/
+frontend/node_modules/
+frontend/dist/
+backend/staticfiles/
