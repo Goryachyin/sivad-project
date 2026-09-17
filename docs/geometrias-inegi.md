@@ -15,3 +15,19 @@ docker compose exec backend python manage.py cargar_limites_inegi
 El comando exige que INEGI devuelva exactamente 32 áreas y que cada clave exista en el catálogo local; así evita cargas parciales o desalineadas. Puede ejecutarse nuevamente para actualizar los límites.
 
 Fuente: [Servicio GeoJSON de áreas geoestadísticas estatales de INEGI](https://gaia.inegi.org.mx/wscatgeo/v2/geo/mgee/). La respuesta consultada identifica su fuente vectorial como Marco Geoestadístico, diciembre de 2025.
+
+## Municipios
+
+Para cargar todos los municipios:
+
+```powershell
+docker compose exec backend python manage.py cargar_municipios_inegi
+```
+
+Para desarrollar o actualizar una entidad específica:
+
+```powershell
+docker compose exec backend python manage.py cargar_municipios_inegi --entidad 12
+```
+
+El comando reporta claves que existan en la edición vigente de INEGI pero no en el catálogo local. Las omite deliberadamente: una equivalencia territorial debe revisarse antes de incorporarla a los registros epidemiológicos históricos.

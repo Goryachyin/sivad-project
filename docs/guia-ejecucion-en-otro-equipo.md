@@ -24,6 +24,37 @@ docs/
 
 Los archivos de datos bajo `backend/data/` son necesarios para cargar catálogos y el corte histórico incluido.
 
+## Migrar una base de datos existente
+
+Si el sistema ya tiene usuarios, registros epidemiológicos, importaciones o geometrías cargadas, estos datos están en el volumen Docker `datos_postgres`. Para trasladarlos a otro equipo se recomienda un respaldo lógico de PostgreSQL/PostGIS, no copiar directamente los archivos internos del volumen.
+
+En el equipo de origen, con los servicios iniciados, crear el respaldo:
+
+```powershell
+docker compose exec base_datos sh -c "pg_dump -U sivad -Fc sivad -f /tmp/sivad.dump"
+
+$contenedor = docker compose ps -q base_datos
+docker cp "${contenedor}:/tmp/sivad.dump" .\respaldo-sivad.dump
+
+docker compose exec base_datos rm /tmp/sivad.dump
+```
+
+Copiar al nuevo equipo la carpeta completa del proyecto, el archivo `respaldo-sivad.dump` y, si existen, los archivos `.env` con la configuración local.
+
+En el equipo destino, antes de iniciar el backend, levantar solo la base de datos y restaurar el respaldo:
+
+```powershell
+docker compose up -d base_datos
+
+$contenedor = docker compose ps -q base_datos
+docker cp .\respaldo-sivad.dump "${contenedor}:/tmp/sivad.dump"
+
+docker compose exec base_datos sh -c "pg_restore -U sivad -d sivad --clean --if-exists /tmp/sivad.dump"
+docker compose exec base_datos rm /tmp/sivad.dump
+```
+
+Después continuar con el inicio normal de todos los servicios. El respaldo recupera la base `sivad`, incluidos los usuarios, datos epidemiológicos, catálogos, importaciones y geometrías PostGIS.
+
 ## Iniciar los servicios
 
 Abrir una terminal en la raíz del proyecto y ejecutar:
@@ -108,6 +139,8 @@ docker compose up --build -d
 ```
 
 El último procedimiento elimina la base de datos local. Después será necesario crear de nuevo el superusuario, cargar catálogos e importar los CSV.
+
+Si hay información que se desea conservar, crear un respaldo antes de ejecutar `docker compose down -v`.
 
 ## Actualizar el código
 

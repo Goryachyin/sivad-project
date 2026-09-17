@@ -11,9 +11,12 @@ Documentación interactiva:
 | Ruta | Descripción |
 |---|---|
 | `/api/publica/resumen/` | Conteo total y distribución por estatus. |
+| `/api/publica/anios-disponibles/` | Años con registros epidemiológicos cargados. |
+| `/api/publica/entidades-disponibles/` | Catálogo de entidades federativas con clave y nombre. |
 | `/api/publica/serie-temporal/` | Conteos mensuales por fecha de inicio de síntomas. |
 | `/api/publica/distribucion-territorial/` | Conteos por entidad o municipio. |
 | `/api/publica/mapa-entidades/` | Límites de entidades cargados en GeoJSON, con conteo de casos confirmados. |
+| `/api/publica/mapa-municipios/?entidad=12` | Límites municipales GeoJSON de una entidad, con conteo y punto representativo. |
 
 Filtros: `anio_inicial`, `anio_final`, `entidad`, `municipio` y `estatus`. El estatus predeterminado es `2` para casos confirmados.
 

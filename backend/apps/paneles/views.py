@@ -3,13 +3,13 @@
 import json
 
 from django.db.models import Count
-from django.db.models.functions import TruncMonth
+from django.db.models.functions import ExtractYear, TruncMonth
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.epidemiologia.models import RegistroEpidemiologico
-from apps.geografia.models import EntidadFederativa
+from apps.geografia.models import EntidadFederativa, Municipio
 
 
 FILTROS = [
@@ -49,6 +49,26 @@ class VistaPublica(APIView):
             return filtrar(request.query_params), None
         except ValueError as error:
             return None, Response({"detalle": str(error)}, status=400)
+
+
+class AniosDisponiblesVista(APIView):
+    """Lista los años que cuentan con registros epidemiológicos cargados."""
+
+    @extend_schema(summary="Años epidemiológicos disponibles", responses=OpenApiTypes.OBJECT)
+    def get(self, request):
+        anios = RegistroEpidemiologico.objects.exclude(fecha_inicio_sintomas__isnull=True).annotate(
+            anio=ExtractYear("fecha_inicio_sintomas")
+        ).values_list("anio", flat=True).distinct().order_by("-anio")
+        return Response({"anios": list(anios)})
+
+
+class EntidadesDisponiblesVista(APIView):
+    """Lista el catálogo nacional para los controles de consulta."""
+
+    @extend_schema(summary="Entidades federativas disponibles", responses=OpenApiTypes.OBJECT)
+    def get(self, request):
+        entidades = EntidadFederativa.objects.filter(codigo__lte="32").values("codigo", "nombre").order_by("codigo")
+        return Response({"entidades": list(entidades)})
 
 
 class ResumenEpidemiologicoVista(VistaPublica):
@@ -118,3 +138,38 @@ class MapaEntidadesVista(VistaPublica):
             "features": caracteristicas,
             "filtros_aplicados": dict(request.query_params),
         })
+
+
+class MapaMunicipiosVista(VistaPublica):
+    """Devuelve los límites municipales de una entidad y sus casos confirmados."""
+
+    @extend_schema(parameters=FILTROS, summary="Mapa GeoJSON de municipios", responses=OpenApiTypes.OBJECT)
+    def get(self, request):
+        consulta, error = self.consulta(request)
+        if error:
+            return error
+        codigo_entidad = request.query_params.get("entidad")
+        if not codigo_entidad:
+            return Response({"detalle": "El mapa municipal requiere el parámetro entidad."}, status=400)
+        codigo_entidad = str(codigo_entidad).zfill(2)
+        conteos = {
+            fila["municipio_asignado__codigo"]: fila["total"]
+            for fila in consulta.values("municipio_asignado__codigo").annotate(total=Count("id"))
+            if fila["municipio_asignado__codigo"]
+        }
+        caracteristicas = []
+        municipios = Municipio.objects.filter(entidad__codigo=codigo_entidad, geometria__isnull=False)
+        for municipio in municipios:
+            geometria = municipio.geometria.simplify(0.001, preserve_topology=True)
+            caracteristicas.append({
+                "type": "Feature",
+                "id": f"{codigo_entidad}{municipio.codigo}",
+                "properties": {
+                    "codigo": municipio.codigo,
+                    "nombre": municipio.nombre,
+                    "casos_confirmados": conteos.get(municipio.codigo, 0),
+                },
+                "geometry": json.loads(geometria.geojson),
+                "punto_representativo": json.loads(geometria.point_on_surface.geojson),
+            })
+        return Response({"type": "FeatureCollection", "features": caracteristicas, "entidad": codigo_entidad, "filtros_aplicados": dict(request.query_params)})
