@@ -79,6 +79,8 @@ http://localhost:8000/estado/
 
 La respuesta esperada contiene `SIVAD` y el estado `disponible`.
 
+Para visualizar la base de datos desde pgAdmin, consulta [Desarrollo con Docker](docker-desarrollo.md#conectar-pgadmin), donde se indican el host, puerto y credenciales de desarrollo.
+
 ## Crear el administrador
 
 Crear una cuenta administrativa local:

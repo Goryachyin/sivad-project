@@ -14,6 +14,7 @@ Sistema de Información y Visualización Analítica del Dengue.
 
 ## Documentación
 
+- [Desarrollo con Docker](docs/docker-desarrollo.md)
 - [Progreso del proyecto](docs/progreso-del-proyecto.md)
 - [Guía de ejecución en otro equipo](docs/guia-ejecucion-en-otro-equipo.md)
 - [Arquitectura del backend](docs/arquitectura-backend.md)

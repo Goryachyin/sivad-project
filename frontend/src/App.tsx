@@ -1,54 +1,560 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
-type Resumen = { total_registros: number; por_estatus: { estatus_caso: number; total: number }[] };
+type Resumen = {
+  total_registros: number;
+  por_estatus: { estatus_caso: number; total: number }[];
+};
 type Serie = { periodo: string; total_casos: number };
 type Territorio = { nombre: string; total_casos: number };
 type Entidad = { codigo: string; nombre: string };
 type Coordenada = [number, number];
-type Caracteristica = { id: string; properties: { codigo: string; nombre: string; casos_confirmados: number }; geometry: { type: string; coordinates: Coordenada[][][] | Coordenada[][] }; punto_representativo?: { coordinates: Coordenada } };
+type Caracteristica = {
+  id: string;
+  properties: { codigo: string; nombre: string; casos_confirmados: number };
+  geometry: { type: string; coordinates: Coordenada[][][] | Coordenada[][] };
+  punto_representativo?: { coordinates: Coordenada };
+};
 type ColeccionMapa = { features: Caracteristica[] };
-const prueba: Resumen = { total_registros: 24224, por_estatus: [{ estatus_caso: 2, total: 24224 }] };
-const numero = (valor: number) => new Intl.NumberFormat('es-MX').format(valor);
+const prueba: Resumen = {
+  total_registros: 24224,
+  por_estatus: [{ estatus_caso: 2, total: 24224 }],
+};
+const numero = (valor: number) => new Intl.NumberFormat("es-MX").format(valor);
 
 function Grafica({ datos, cobertura }: { datos: Serie[]; cobertura: string }) {
-  const totalesPorMes = new Map(datos.map((punto) => [new Date(punto.periodo).getUTCMonth(), punto.total_casos]));
-  const meses = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'].map((etiqueta, mes) => ({ etiqueta, total: totalesPorMes.get(mes) ?? 0 }));
+  const totalesPorMes = new Map(
+    datos.map((punto) => [
+      new Date(punto.periodo).getUTCMonth(),
+      punto.total_casos,
+    ]),
+  );
+  const meses = [
+    "ENE",
+    "FEB",
+    "MAR",
+    "ABR",
+    "MAY",
+    "JUN",
+    "JUL",
+    "AGO",
+    "SEP",
+    "OCT",
+    "NOV",
+    "DIC",
+  ].map((etiqueta, mes) => ({ etiqueta, total: totalesPorMes.get(mes) ?? 0 }));
   const maximo = Math.max(...meses.map((punto) => punto.total), 1);
   const base = Math.max(1, 10 ** Math.floor(Math.log10(maximo / 6)));
   const incremento = Math.ceil(maximo / 6 / base) * base;
   const limite = incremento * 6;
   const x = (indice: number) => 40 + (indice / 11) * 352;
   const y = (valor: number) => 84 - (valor / limite) * 68;
-  const puntos = meses.map((punto, indice) => `${x(indice)},${y(punto.total)}`).join(' ');
-  const marcasY = Array.from({ length: 7 }, (_, indice) => limite - incremento * indice);
+  const puntos = meses
+    .map((punto, indice) => `${x(indice)},${y(punto.total)}`)
+    .join(" ");
+  const marcasY = Array.from(
+    { length: 7 },
+    (_, indice) => limite - incremento * indice,
+  );
 
-  return <figure className="figura-grafica"><h2>Casos confirmados mensuales — {cobertura}</h2><figcaption>Unidad: casos confirmados por mes</figcaption><svg className="grafica" viewBox="0 0 400 100" preserveAspectRatio="none" role="img" aria-label={`Evolución mensual de casos confirmados en ${cobertura}; eje vertical en número de casos y eje horizontal de enero a diciembre`}><text x="4" y="9">CASOS</text>{marcasY.map((marca) => <g key={marca}><line x1="40" x2="392" y1={y(marca)} y2={y(marca)}/><text x="32" y={y(marca) + 1.5} textAnchor="end">{numero(marca)}</text></g>)}<line x1="40" x2="392" y1="84" y2="84"/>{meses.map((punto, indice) => <text key={punto.etiqueta} x={x(indice)} y="94" textAnchor="middle">{punto.etiqueta}</text>)}<text x="392" y="99" textAnchor="end">MES</text><polyline points={puntos} fill="none" stroke="currentColor" strokeWidth="2.5" vectorEffect="non-scaling-stroke"/></svg></figure>;
+  return (
+    <figure className="figura-grafica">
+      <h2>Casos confirmados mensuales — {cobertura}</h2>
+      <figcaption>Unidad: casos confirmados por mes</figcaption>
+      <svg
+        className="grafica"
+        viewBox="0 0 400 100"
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={`Evolución mensual de casos confirmados en ${cobertura}; eje vertical en número de casos y eje horizontal de enero a diciembre`}
+      >
+        <text x="4" y="9">
+          CASOS
+        </text>
+        {marcasY.map((marca) => (
+          <g key={marca}>
+            <line x1="40" x2="392" y1={y(marca)} y2={y(marca)} />
+            <text x="32" y={y(marca) + 1.5} textAnchor="end">
+              {numero(marca)}
+            </text>
+          </g>
+        ))}
+        <line x1="40" x2="392" y1="84" y2="84" />
+        {meses.map((punto, indice) => (
+          <text key={punto.etiqueta} x={x(indice)} y="94" textAnchor="middle">
+            {punto.etiqueta}
+          </text>
+        ))}
+        <text x="392" y="99" textAnchor="end">
+          MES
+        </text>
+        <polyline
+          points={puntos}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
+    </figure>
+  );
 }
 
-function Mapa({ coleccion, nivel, mostrarCirculos, cambiarCirculos, alSeleccionar }: { coleccion: ColeccionMapa | null; nivel: 'entidad' | 'municipio'; mostrarCirculos: boolean; cambiarCirculos: (valor: boolean) => void; alSeleccionar?: (item: Caracteristica) => void }) {
+function Mapa({
+  coleccion,
+  nivel,
+  mostrarCirculos,
+  cambiarCirculos,
+  alSeleccionar,
+}: {
+  coleccion: ColeccionMapa | null;
+  nivel: "entidad" | "municipio";
+  mostrarCirculos: boolean;
+  cambiarCirculos: (valor: boolean) => void;
+  alSeleccionar?: (item: Caracteristica) => void;
+}) {
   const [seleccion, setSeleccion] = useState<Caracteristica | null>(null);
-  const etiqueta = nivel === 'municipio' ? 'Concentración municipal' : 'Distribución por entidad';
-  if (!coleccion?.features.length) return <section id="mapa" className="mapa-vacio"><p className="sobrelinea">Geografía</p><h2>Sin límites disponibles para esta consulta</h2><p>La entidad seleccionada no tiene una geometría municipal compatible cargada.</p></section>;
-  const poligonos = (f: Caracteristica): Coordenada[][][] => f.geometry.type === 'Polygon' ? [f.geometry.coordinates as Coordenada[][]] : f.geometry.coordinates as Coordenada[][][];
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, mayor = 1;
-  coleccion.features.forEach((f) => { mayor = Math.max(mayor, f.properties.casos_confirmados); poligonos(f).forEach((p) => p.forEach((a) => a.forEach(([x, y]) => { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); }))); });
-  const punto = ([x, y]: Coordenada) => ({ cx: (x - minX) / (maxX - minX) * 94 + 3, cy: (maxY - y) / (maxY - minY) * 94 + 3 });
-  const ruta = (anillo: Coordenada[]) => anillo.map(([x, y], i) => `${i ? 'L' : 'M'} ${punto([x, y]).cx.toFixed(2)} ${punto([x, y]).cy.toFixed(2)}`).join(' ') + ' Z';
-  const elegir = (f: Caracteristica) => { setSeleccion(f); alSeleccionar?.(f); };
-  return <section id="mapa" className="mapa"><div><p className="sobrelinea">Geografía / {nivel}</p><h2>{etiqueta}</h2><p className="nota">La intensidad representa casos confirmados; el nombre y total se muestran siempre como referencia.</p>{nivel === 'municipio' && <label className="control-capa"><input type="checkbox" checked={mostrarCirculos} onChange={(e) => cambiarCirculos(e.target.checked)}/> Mostrar círculos proporcionales</label>}</div><div className="lienzo-mapa"><svg viewBox="0 0 100 100" role="img" aria-label={`Mapa interactivo de casos confirmados por ${nivel}`}>{coleccion.features.map((f) => <g key={f.id}><title>{`${f.properties.nombre}: ${numero(f.properties.casos_confirmados)} casos confirmados`}</title>{poligonos(f).map((p, i) => <path key={i} d={ruta(p[0])} className="entidad-mapa" style={{ opacity: 0.18 + f.properties.casos_confirmados / mayor * 0.82 }} role="button" tabIndex={0} aria-label={`${f.properties.nombre}, ${numero(f.properties.casos_confirmados)} casos confirmados`} onClick={() => elegir(f)} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && elegir(f)}/>)}</g>)}{mostrarCirculos && coleccion.features.map((f) => f.punto_representativo && f.properties.casos_confirmados > 0 && <circle key={`c-${f.id}`} {...punto(f.punto_representativo.coordinates)} r={1.1 + Math.sqrt(f.properties.casos_confirmados / mayor) * 4} className="circulo-casos"><title>{`${f.properties.nombre}: ${numero(f.properties.casos_confirmados)} casos confirmados`}</title></circle>)}</svg><aside aria-live="polite"><strong>{seleccion?.properties.nombre ?? `Selecciona ${nivel === 'entidad' ? 'una entidad' : 'un municipio'}`}</strong><span>{seleccion ? `${numero(seleccion.properties.casos_confirmados)} casos confirmados` : 'La selección muestra el detalle territorial.'}</span></aside></div></section>;
+  const etiqueta =
+    nivel === "municipio"
+      ? "Concentración municipal"
+      : "Distribución por entidad";
+  if (!coleccion?.features.length)
+    return (
+      <section id="mapa" className="mapa-vacio">
+        <p className="sobrelinea">Geografía</p>
+        <h2>Sin límites disponibles para esta consulta</h2>
+        <p>
+          La entidad seleccionada no tiene una geometría municipal compatible
+          cargada.
+        </p>
+      </section>
+    );
+  const poligonos = (f: Caracteristica): Coordenada[][][] =>
+    f.geometry.type === "Polygon"
+      ? [f.geometry.coordinates as Coordenada[][]]
+      : (f.geometry.coordinates as Coordenada[][][]);
+  let minX = Infinity,
+    maxX = -Infinity,
+    minY = Infinity,
+    maxY = -Infinity,
+    mayor = 1;
+  coleccion.features.forEach((f) => {
+    mayor = Math.max(mayor, f.properties.casos_confirmados);
+    poligonos(f).forEach((p) =>
+      p.forEach((a) =>
+        a.forEach(([x, y]) => {
+          minX = Math.min(minX, x);
+          maxX = Math.max(maxX, x);
+          minY = Math.min(minY, y);
+          maxY = Math.max(maxY, y);
+        }),
+      ),
+    );
+  });
+  const punto = ([x, y]: Coordenada) => ({
+    cx: ((x - minX) / (maxX - minX)) * 94 + 3,
+    cy: ((maxY - y) / (maxY - minY)) * 94 + 3,
+  });
+  const ruta = (anillo: Coordenada[]) =>
+    anillo
+      .map(
+        ([x, y], i) =>
+          `${i ? "L" : "M"} ${punto([x, y]).cx.toFixed(2)} ${punto([x, y]).cy.toFixed(2)}`,
+      )
+      .join(" ") + " Z";
+  const elegir = (f: Caracteristica) => {
+    setSeleccion(f);
+    alSeleccionar?.(f);
+  };
+  return (
+    <section id="mapa" className="mapa">
+      <div>
+        <p className="sobrelinea">Geografía / {nivel}</p>
+        <h2>{etiqueta}</h2>
+        <p className="nota">
+          La intensidad representa casos confirmados; el nombre y total se
+          muestran siempre como referencia.
+        </p>
+        {nivel === "municipio" && (
+          <label className="control-capa">
+            <input
+              type="checkbox"
+              checked={mostrarCirculos}
+              onChange={(e) => cambiarCirculos(e.target.checked)}
+            />{" "}
+            Mostrar círculos proporcionales
+          </label>
+        )}
+      </div>
+      <div className="lienzo-mapa">
+        <svg
+          viewBox="0 0 100 100"
+          role="img"
+          aria-label={`Mapa interactivo de casos confirmados por ${nivel}`}
+        >
+          {coleccion.features.map((f) => (
+            <g key={f.id}>
+              <title>{`${f.properties.nombre}: ${numero(f.properties.casos_confirmados)} casos confirmados`}</title>
+              {poligonos(f).map((p, i) => (
+                <path
+                  key={i}
+                  d={ruta(p[0])}
+                  className="entidad-mapa"
+                  style={{
+                    opacity:
+                      0.18 + (f.properties.casos_confirmados / mayor) * 0.82,
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${f.properties.nombre}, ${numero(f.properties.casos_confirmados)} casos confirmados`}
+                  onClick={() => elegir(f)}
+                  onKeyDown={(e) =>
+                    (e.key === "Enter" || e.key === " ") && elegir(f)
+                  }
+                />
+              ))}
+            </g>
+          ))}
+          {mostrarCirculos &&
+            coleccion.features.map(
+              (f) =>
+                f.punto_representativo &&
+                f.properties.casos_confirmados > 0 && (
+                  <circle
+                    key={`c-${f.id}`}
+                    {...punto(f.punto_representativo.coordinates)}
+                    r={
+                      1.1 +
+                      Math.sqrt(f.properties.casos_confirmados / mayor) * 4
+                    }
+                    className="circulo-casos"
+                  >
+                    <title>{`${f.properties.nombre}: ${numero(f.properties.casos_confirmados)} casos confirmados`}</title>
+                  </circle>
+                ),
+            )}
+        </svg>
+        <aside aria-live="polite">
+          <strong>
+            {seleccion?.properties.nombre ??
+              `Selecciona ${nivel === "entidad" ? "una entidad" : "un municipio"}`}
+          </strong>
+          <span>
+            {seleccion
+              ? `${numero(seleccion.properties.casos_confirmados)} casos confirmados`
+              : "La selección muestra el detalle territorial."}
+          </span>
+        </aside>
+      </div>
+    </section>
+  );
 }
 
 export default function App() {
-  const [entidad, setEntidad] = useState(''); const [nombreEntidad, setNombreEntidad] = useState(''); const [busquedaEntidad, setBusquedaEntidad] = useState(''); const [entidades, setEntidades] = useState<Entidad[]>([]); const [anio, setAnio] = useState('2020'); const [anios, setAnios] = useState<number[]>([2020]); const [resumen, setResumen] = useState<Resumen | null>(null); const [serie, setSerie] = useState<Serie[]>([]); const [territorios, setTerritorios] = useState<Territorio[]>([]); const [mapa, setMapa] = useState<ColeccionMapa | null>(null); const [estado, setEstado] = useState<'cargando' | 'listo' | 'prueba' | 'vacio'>('cargando'); const [circulos, setCirculos] = useState(false);
-  async function consultar(evento?: FormEvent, codigoDestino = entidad, anioDestino = anio) { evento?.preventDefault(); setEstado('cargando'); const codigo = codigoDestino.trim(); const filtros = `anio_inicial=${anioDestino}&anio_final=${anioDestino}${codigo ? `&entidad=${encodeURIComponent(codigo)}` : ''}`; const nivel = codigo ? '&nivel=municipio' : ''; try { const [rr, rs, rt, rm] = await Promise.all([fetch(`/api/publica/resumen/?${filtros}`), fetch(`/api/publica/serie-temporal/?${filtros}`), fetch(`/api/publica/distribucion-territorial/?${filtros}${nivel}`), fetch(codigo ? `/api/publica/mapa-municipios/?${filtros}` : `/api/publica/mapa-entidades/?${filtros}`)]); if (![rr, rs, rt, rm].every((r) => r.ok)) throw Error(); const [a, b, c, d] = await Promise.all([rr.json(), rs.json(), rt.json(), rm.json()]); setResumen(a); setSerie((b.serie_mensual ?? []).map((x: { periodo: string; total: number }) => ({ periodo: x.periodo, total_casos: x.total }))); const campoNombre = codigo ? 'municipio_asignado__nombre' : 'entidad_asignada__nombre'; setTerritorios((c.resultados ?? []).filter((x: Record<string, unknown>) => x[campoNombre]).slice(0, 6).map((x: Record<string, unknown>) => ({ nombre: String(x[campoNombre]), total_casos: Number(x.total) }))); setMapa(d); setEstado(a.total_registros ? 'listo' : 'vacio'); } catch { setResumen(prueba); setSerie([]); setTerritorios([]); setMapa(null); setEstado('prueba'); } }
-  useEffect(() => { Promise.all([fetch('/api/publica/anios-disponibles/'), fetch('/api/publica/entidades-disponibles/')]).then(async ([respuestaAnios, respuestaEntidades]) => { if (!respuestaAnios.ok || !respuestaEntidades.ok) throw Error(); const [datosAnios, datosEntidades] = await Promise.all([respuestaAnios.json(), respuestaEntidades.json()]); const disponibles = datosAnios.anios?.length ? datosAnios.anios : [2020]; const reciente = String(disponibles[0]); setAnios(disponibles); setEntidades(datosEntidades.entidades ?? []); setAnio(reciente); consultar(undefined, '', reciente); }).catch(() => consultar()); }, []);
-  const confirmados = resumen?.por_estatus.find((x) => x.estatus_caso === 2)?.total ?? 0; const etiqueta = useMemo(() => estado === 'prueba' ? 'Datos de prueba · API no disponible' : estado === 'cargando' ? 'Actualizando consulta…' : 'Fuente: API pública SIVAD', [estado]);
+  const [entidad, setEntidad] = useState("");
+  const [nombreEntidad, setNombreEntidad] = useState("");
+  const [busquedaEntidad, setBusquedaEntidad] = useState("");
+  const [entidades, setEntidades] = useState<Entidad[]>([]);
+  const [anio, setAnio] = useState("2020");
+  const [anios, setAnios] = useState<number[]>([2020]);
+  const [resumen, setResumen] = useState<Resumen | null>(null);
+  const [serie, setSerie] = useState<Serie[]>([]);
+  const [territorios, setTerritorios] = useState<Territorio[]>([]);
+  const [mapa, setMapa] = useState<ColeccionMapa | null>(null);
+  const [estado, setEstado] = useState<
+    "cargando" | "listo" | "prueba" | "vacio"
+  >("cargando");
+  const [circulos, setCirculos] = useState(false);
+  async function consultar(
+    evento?: FormEvent,
+    codigoDestino = entidad,
+    anioDestino = anio,
+  ) {
+    evento?.preventDefault();
+    setEstado("cargando");
+    const codigo = codigoDestino.trim();
+    const filtros = `anio_inicial=${anioDestino}&anio_final=${anioDestino}${codigo ? `&entidad=${encodeURIComponent(codigo)}` : ""}`;
+    const nivel = codigo ? "&nivel=municipio" : "";
+    try {
+      const [rr, rs, rt, rm] = await Promise.all([
+        fetch(`/api/publica/resumen/?${filtros}`),
+        fetch(`/api/publica/serie-temporal/?${filtros}`),
+        fetch(`/api/publica/distribucion-territorial/?${filtros}${nivel}`),
+        fetch(
+          codigo
+            ? `/api/publica/mapa-municipios/?${filtros}`
+            : `/api/publica/mapa-entidades/?${filtros}`,
+        ),
+      ]);
+      if (![rr, rs, rt, rm].every((r) => r.ok)) throw Error();
+      const [a, b, c, d] = await Promise.all([
+        rr.json(),
+        rs.json(),
+        rt.json(),
+        rm.json(),
+      ]);
+      setResumen(a);
+      setSerie(
+        (b.serie_mensual ?? []).map(
+          (x: { periodo: string; total: number }) => ({
+            periodo: x.periodo,
+            total_casos: x.total,
+          }),
+        ),
+      );
+      const campoNombre = codigo
+        ? "municipio_asignado__nombre"
+        : "entidad_asignada__nombre";
+      setTerritorios(
+        (c.resultados ?? [])
+          .filter((x: Record<string, unknown>) => x[campoNombre])
+          .slice(0, 6)
+          .map((x: Record<string, unknown>) => ({
+            nombre: String(x[campoNombre]),
+            total_casos: Number(x.total),
+          })),
+      );
+      setMapa(d);
+      setEstado(a.total_registros ? "listo" : "vacio");
+    } catch {
+      setResumen(prueba);
+      setSerie([]);
+      setTerritorios([]);
+      setMapa(null);
+      setEstado("prueba");
+    }
+  }
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/publica/anios-disponibles/"),
+      fetch("/api/publica/entidades-disponibles/"),
+    ])
+      .then(async ([respuestaAnios, respuestaEntidades]) => {
+        if (!respuestaAnios.ok || !respuestaEntidades.ok) throw Error();
+        const [datosAnios, datosEntidades] = await Promise.all([
+          respuestaAnios.json(),
+          respuestaEntidades.json(),
+        ]);
+        const disponibles = datosAnios.anios?.length
+          ? datosAnios.anios
+          : [2020];
+        const reciente = String(disponibles[0]);
+        setAnios(disponibles);
+        setEntidades(datosEntidades.entidades ?? []);
+        setAnio(reciente);
+        consultar(undefined, "", reciente);
+      })
+      .catch(() => consultar());
+  }, []);
+  const confirmados =
+    resumen?.por_estatus.find((x) => x.estatus_caso === 2)?.total ?? 0;
+  const etiqueta = useMemo(
+    () =>
+      estado === "prueba"
+        ? "Datos de prueba · API no disponible"
+        : estado === "cargando"
+          ? "Actualizando consulta…"
+          : "Fuente: API pública SIVAD",
+    [estado],
+  );
   const etiquetaEntidad = (item: Entidad) => `${item.codigo} · ${item.nombre}`;
-  const encontrarEntidad = (valor: string) => { const consulta = valor.trim().toLocaleLowerCase('es-MX'); return entidades.find((item) => item.codigo === consulta || item.nombre.toLocaleLowerCase('es-MX') === consulta || etiquetaEntidad(item).toLocaleLowerCase('es-MX') === consulta); };
-  const abrirEntidad = (f: Caracteristica) => { setEntidad(f.properties.codigo); setNombreEntidad(f.properties.nombre); setBusquedaEntidad(`${f.properties.codigo} · ${f.properties.nombre}`); setCirculos(false); consultar(undefined, f.properties.codigo); };
-  const volverMexico = () => { setEntidad(''); setNombreEntidad(''); setBusquedaEntidad(''); setCirculos(false); consultar(undefined, ''); };
-  const enviarConsulta = (evento: FormEvent) => { evento.preventDefault(); const seleccionada = encontrarEntidad(busquedaEntidad); if (busquedaEntidad.trim() && !seleccionada) { setEstado('vacio'); return; } setEntidad(seleccionada?.codigo ?? ''); setNombreEntidad(seleccionada?.nombre ?? ''); setCirculos(false); consultar(undefined, seleccionada?.codigo ?? ''); };
-  const actualizarBusquedaEntidad = (valor: string) => { setBusquedaEntidad(valor); const seleccionada = encontrarEntidad(valor); setEntidad(seleccionada?.codigo ?? ''); setNombreEntidad(seleccionada?.nombre ?? ''); };
-  const coberturaGrafica = entidad ? nombreEntidad || `Entidad ${entidad}` : 'México';
-  return <main><header className="encabezado"><a className="marca" href="#inicio">SIVAD <span>· vigilancia epidemiológica</span></a><nav aria-label="Navegación principal"><a href="#panorama">Panorama</a><a href="#mapa">Mapa</a><a href="http://localhost:8000/api/docs/" target="_blank" rel="noreferrer">API pública</a></nav></header><section id="inicio" className="titulo"><p>Consulta pública / México</p><h1>Dengue: vigilancia con datos legibles.</h1><p className="subtitulo">Tablero exploratorio de casos confirmados. No sustituye la comunicación oficial de una alerta sanitaria.</p></section><form className="filtros" onSubmit={enviarConsulta}><label>Periodo<select value={anio} onChange={(e) => setAnio(e.target.value)} aria-label="Periodo">{anios.map((valor) => <option key={valor} value={valor}>{valor}</option>)}</select></label><label>Entidad federativa<input value={busquedaEntidad} onChange={(e) => actualizarBusquedaEntidad(e.target.value)} list="lista-entidades" placeholder="Buscar por clave o nombre" aria-describedby="ayuda-entidad"/><datalist id="lista-entidades">{entidades.map((item) => <option key={item.codigo} value={etiquetaEntidad(item)}/>)}</datalist><span id="ayuda-entidad" className="ayuda-control">Escribe o selecciona una clave o nombre.</span></label><button>Actualizar consulta</button></form><p className={`estado ${estado}`} role="status">{etiqueta}</p>{entidad && <button className="volver" type="button" onClick={volverMexico}>Volver al mapa de México</button>}{estado === 'vacio' ? <section className="vacio"><h2>Sin resultados para esta consulta</h2><p>Selecciona una entidad de la lista o elimina el filtro para consultar México completo.</p></section> : <><section id="panorama" className="metricas"><article><p className="etiqueta-confirmada">Casos confirmados</p><strong>{numero(confirmados)}</strong><small>Clasificación oficial confirmada</small></article><article><p>Periodo consultado</p><strong>{anio}</strong><small>Datos históricos disponibles</small></article><article><p>Cobertura</p><strong>{entidad ? 'Entidad' : 'Nacional'}</strong><small>{coberturaGrafica}</small></article></section><section className="doble"><article className="bloque bloque-tendencia"><p className="sobrelinea">Tendencia</p>{serie.length ? <Grafica datos={serie} cobertura={coberturaGrafica}/> : <><h2>Casos confirmados mensuales — {coberturaGrafica}</h2><p>No hay serie disponible.</p></>}<p className="nota">La línea muestra la evolución agregada de casos confirmados seleccionados.</p></article><article className="bloque"><p className="sobrelinea">Territorio</p><h2>Mayor concentración</h2><table><thead><tr><th>Territorio</th><th>Confirmados</th></tr></thead><tbody>{territorios.map((f) => <tr key={f.nombre}><td>{f.nombre}</td><td>{numero(f.total_casos)}</td></tr>)}</tbody></table></article></section><Mapa coleccion={mapa} nivel={entidad ? 'municipio' : 'entidad'} mostrarCirculos={circulos} cambiarCirculos={setCirculos} alSeleccionar={entidad ? undefined : abrirEntidad}/></>}<footer><p>Datos para consulta y análisis. Clasificación: confirmado = estatus 2.</p><a href="http://localhost:8000/api/redoc/" target="_blank" rel="noreferrer">Ver referencia técnica</a></footer></main>;
+  const encontrarEntidad = (valor: string) => {
+    const consulta = valor.trim().toLocaleLowerCase("es-MX");
+    return entidades.find(
+      (item) =>
+        item.codigo === consulta ||
+        item.nombre.toLocaleLowerCase("es-MX") === consulta ||
+        etiquetaEntidad(item).toLocaleLowerCase("es-MX") === consulta,
+    );
+  };
+  const abrirEntidad = (f: Caracteristica) => {
+    setEntidad(f.properties.codigo);
+    setNombreEntidad(f.properties.nombre);
+    setBusquedaEntidad(`${f.properties.codigo} · ${f.properties.nombre}`);
+    setCirculos(false);
+    consultar(undefined, f.properties.codigo);
+  };
+  const volverMexico = () => {
+    setEntidad("");
+    setNombreEntidad("");
+    setBusquedaEntidad("");
+    setCirculos(false);
+    consultar(undefined, "");
+  };
+  const enviarConsulta = (evento: FormEvent) => {
+    evento.preventDefault();
+    const seleccionada = encontrarEntidad(busquedaEntidad);
+    if (busquedaEntidad.trim() && !seleccionada) {
+      setEstado("vacio");
+      return;
+    }
+    setEntidad(seleccionada?.codigo ?? "");
+    setNombreEntidad(seleccionada?.nombre ?? "");
+    setCirculos(false);
+    consultar(undefined, seleccionada?.codigo ?? "");
+  };
+  const actualizarBusquedaEntidad = (valor: string) => {
+    setBusquedaEntidad(valor);
+    const seleccionada = encontrarEntidad(valor);
+    setEntidad(seleccionada?.codigo ?? "");
+    setNombreEntidad(seleccionada?.nombre ?? "");
+  };
+  const coberturaGrafica = entidad
+    ? nombreEntidad || `Entidad ${entidad}`
+    : "México";
+  return (
+    <main>
+      <header className="encabezado">
+        <a className="marca" href="#inicio">
+          SIVAD <span>· vigilancia epidemiológica</span>
+        </a>
+        <nav aria-label="Navegación principal">
+          <a href="#panorama">Panorama</a>
+          <a href="#mapa">Mapa</a>
+          <a
+            href="http://localhost:8000/api/docs/"
+            target="_blank"
+            rel="noreferrer"
+          >
+            API pública
+          </a>
+        </nav>
+      </header>
+      <section id="inicio" className="titulo">
+        <p>Consulta pública / México</p>
+        <h1>Dengue: vigilancia con datos legibles.</h1>
+        <p className="subtitulo">
+          Tablero exploratorio de casos confirmados. No sustituye la
+          comunicación oficial de una alerta sanitaria.
+        </p>
+      </section>
+      <form className="filtros" onSubmit={enviarConsulta}>
+        <label>
+          Periodo
+          <select
+            value={anio}
+            onChange={(e) => setAnio(e.target.value)}
+            aria-label="Periodo"
+          >
+            {anios.map((valor) => (
+              <option key={valor} value={valor}>
+                {valor}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Entidad federativa
+          <input
+            value={busquedaEntidad}
+            onChange={(e) => actualizarBusquedaEntidad(e.target.value)}
+            list="lista-entidades"
+            placeholder="Buscar por clave o nombre"
+            aria-describedby="ayuda-entidad"
+          />
+          <datalist id="lista-entidades">
+            {entidades.map((item) => (
+              <option key={item.codigo} value={etiquetaEntidad(item)} />
+            ))}
+          </datalist>
+          <span id="ayuda-entidad" className="ayuda-control">
+            Escribe o selecciona una clave o nombre.
+          </span>
+        </label>
+        <button>Actualizar consulta</button>
+      </form>
+      <p className={`estado ${estado}`} role="status">
+        {etiqueta}
+      </p>
+      {entidad && (
+        <button className="volver" type="button" onClick={volverMexico}>
+          Volver al mapa de México
+        </button>
+      )}
+      {estado === "vacio" ? (
+        <section className="vacio">
+          <h2>Sin resultados para esta consulta</h2>
+          <p>
+            Selecciona una entidad de la lista o elimina el filtro para
+            consultar México completo.
+          </p>
+        </section>
+      ) : (
+        <>
+          <section id="panorama" className="metricas">
+            <article>
+              <p className="etiqueta-confirmada">Casos confirmados</p>
+              <strong>{numero(confirmados)}</strong>
+              <small>Clasificación oficial confirmada</small>
+            </article>
+            <article>
+              <p>Periodo consultado</p>
+              <strong>{anio}</strong>
+              <small>Datos históricos disponibles</small>
+            </article>
+            <article>
+              <p>Cobertura</p>
+              <strong>{entidad ? "Entidad" : "Nacional"}</strong>
+              <small>{coberturaGrafica}</small>
+            </article>
+          </section>
+          <section className="doble">
+            <article className="bloque bloque-tendencia">
+              <p className="sobrelinea">Tendencia</p>
+              {serie.length ? (
+                <Grafica datos={serie} cobertura={coberturaGrafica} />
+              ) : (
+                <>
+                  <h2>Casos confirmados mensuales — {coberturaGrafica}</h2>
+                  <p>No hay serie disponible.</p>
+                </>
+              )}
+              <p className="nota">
+                La línea muestra la evolución agregada de casos confirmados
+                seleccionados.
+              </p>
+            </article>
+            <article className="bloque">
+              <p className="sobrelinea">Territorio</p>
+              <h2>Mayor concentración</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Territorio</th>
+                    <th>Confirmados</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {territorios.map((f) => (
+                    <tr key={f.nombre}>
+                      <td>{f.nombre}</td>
+                      <td>{numero(f.total_casos)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </article>
+          </section>
+          <Mapa
+            coleccion={mapa}
+            nivel={entidad ? "municipio" : "entidad"}
+            mostrarCirculos={circulos}
+            cambiarCirculos={setCirculos}
+            alSeleccionar={entidad ? undefined : abrirEntidad}
+          />
+        </>
+      )}
+      <footer>
+        <p>
+          Datos para consulta y análisis. Clasificación: confirmado = estatus 2.
+        </p>
+        <a
+          href="http://localhost:8000/api/redoc/"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Ver referencia técnica
+        </a>
+      </footer>
+    </main>
+  );
 }
