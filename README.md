@@ -19,3 +19,4 @@ Sistema de Información y Visualización Analítica del Dengue.
 - [Guía de ejecución en otro equipo](docs/guia-ejecucion-en-otro-equipo.md)
 - [Arquitectura del backend](docs/arquitectura-backend.md)
 - [Importación de datos de dengue](docs/importacion-dengue.md)
+- [MCP local para Claude Desktop](docs/mcp-claude-desktop.md)

@@ -1,0 +1,4 @@
+const rutas: Record<string, string> = {
+  panorama: "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z", mapa: "M3 5l6-2 6 2 6-2v16l-6 2-6-2-6 2z M9 3v16 M15 5v16", tiempo: "M12 8v4l3 2 M21 12a9 9 0 1 1-9-9 9 9 0 0 1 9 9z", grafica: "M3 3v18h18 M6 15l4-5 4 3 6-7", tabla: "M3 4h18v16H3z M3 9h18 M3 14h18 M10 4v16", api: "M8 7l-5 5 5 5 M16 7l5 5-5 5 M14 4l-4 16", menu: "M4 6h16 M4 12h16 M4 18h16", luna: "M20 14A8 8 0 0 1 10 4a8 8 0 1 0 10 10z", sol: "M12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8z M12 2v2 M12 20v2 M2 12h2 M20 12h2 M5 5l1.5 1.5 M17.5 17.5L19 19 M5 19l1.5-1.5 M17.5 6.5L19 5",
+};
+export function Icono({ nombre }: { nombre: string }) { return <svg className="icono" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d={rutas[nombre] ?? rutas.panorama} /></svg>; }

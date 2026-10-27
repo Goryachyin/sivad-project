@@ -1,560 +1,567 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { obtenerCatalogos, obtenerComparativa, obtenerDesgloseMunicipal, type Periodo } from "./api/publica";
+import { GraficaComparativa } from "./componentes/GraficaComparativa";
+import { Icono as IconoModular } from "./componentes/Icono";
+import { LineaTiempo as LineaTiempoModular, type ModoTemporal } from "./componentes/LineaTiempo";
+import { MapaMunicipal } from "./componentes/MapaMunicipal";
+import type { Caracteristica, ColeccionMapa, Desglose, Entidad, EstadoConsulta, Resumen, Serie, Territorio } from "./tipos";
+import { agruparMeses, guardarPreferencia, leerPreferencia, MESES_LARGOS, normalizar, numero, porcentaje, totalEstatus } from "./utilidades/formato";
 
-type Resumen = {
-  total_registros: number;
-  por_estatus: { estatus_caso: number; total: number }[];
-};
-type Serie = { periodo: string; total_casos: number };
-type Territorio = { nombre: string; total_casos: number };
-type Entidad = { codigo: string; nombre: string };
-type Coordenada = [number, number];
-type Caracteristica = {
-  id: string;
-  properties: { codigo: string; nombre: string; casos_confirmados: number };
-  geometry: { type: string; coordinates: Coordenada[][][] | Coordenada[][] };
-  punto_representativo?: { coordinates: Coordenada };
-};
-type ColeccionMapa = { features: Caracteristica[] };
-const prueba: Resumen = {
-  total_registros: 24224,
-  por_estatus: [{ estatus_caso: 2, total: 24224 }],
-};
-const numero = (valor: number) => new Intl.NumberFormat("es-MX").format(valor);
-
-function Grafica({ datos, cobertura }: { datos: Serie[]; cobertura: string }) {
-  const totalesPorMes = new Map(
-    datos.map((punto) => [
-      new Date(punto.periodo).getUTCMonth(),
-      punto.total_casos,
-    ]),
-  );
-  const meses = [
-    "ENE",
-    "FEB",
-    "MAR",
-    "ABR",
-    "MAY",
-    "JUN",
-    "JUL",
-    "AGO",
-    "SEP",
-    "OCT",
-    "NOV",
-    "DIC",
-  ].map((etiqueta, mes) => ({ etiqueta, total: totalesPorMes.get(mes) ?? 0 }));
-  const maximo = Math.max(...meses.map((punto) => punto.total), 1);
-  const base = Math.max(1, 10 ** Math.floor(Math.log10(maximo / 6)));
-  const incremento = Math.ceil(maximo / 6 / base) * base;
-  const limite = incremento * 6;
-  const x = (indice: number) => 40 + (indice / 11) * 352;
-  const y = (valor: number) => 84 - (valor / limite) * 68;
-  const puntos = meses
-    .map((punto, indice) => `${x(indice)},${y(punto.total)}`)
-    .join(" ");
-  const marcasY = Array.from(
-    { length: 7 },
-    (_, indice) => limite - incremento * indice,
-  );
-
-  return (
-    <figure className="figura-grafica">
-      <h2>Casos confirmados mensuales — {cobertura}</h2>
-      <figcaption>Unidad: casos confirmados por mes</figcaption>
-      <svg
-        className="grafica"
-        viewBox="0 0 400 100"
-        preserveAspectRatio="none"
-        role="img"
-        aria-label={`Evolución mensual de casos confirmados en ${cobertura}; eje vertical en número de casos y eje horizontal de enero a diciembre`}
-      >
-        <text x="4" y="9">
-          CASOS
-        </text>
-        {marcasY.map((marca) => (
-          <g key={marca}>
-            <line x1="40" x2="392" y1={y(marca)} y2={y(marca)} />
-            <text x="32" y={y(marca) + 1.5} textAnchor="end">
-              {numero(marca)}
-            </text>
-          </g>
-        ))}
-        <line x1="40" x2="392" y1="84" y2="84" />
-        {meses.map((punto, indice) => (
-          <text key={punto.etiqueta} x={x(indice)} y="94" textAnchor="middle">
-            {punto.etiqueta}
-          </text>
-        ))}
-        <text x="392" y="99" textAnchor="end">
-          MES
-        </text>
-        <polyline
-          points={puntos}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          vectorEffect="non-scaling-stroke"
-        />
-      </svg>
-    </figure>
-  );
-}
-
-function Mapa({
-  coleccion,
-  nivel,
-  mostrarCirculos,
-  cambiarCirculos,
-  alSeleccionar,
-}: {
-  coleccion: ColeccionMapa | null;
-  nivel: "entidad" | "municipio";
-  mostrarCirculos: boolean;
-  cambiarCirculos: (valor: boolean) => void;
-  alSeleccionar?: (item: Caracteristica) => void;
-}) {
-  const [seleccion, setSeleccion] = useState<Caracteristica | null>(null);
-  const etiqueta =
-    nivel === "municipio"
-      ? "Concentración municipal"
-      : "Distribución por entidad";
-  if (!coleccion?.features.length)
-    return (
-      <section id="mapa" className="mapa-vacio">
-        <p className="sobrelinea">Geografía</p>
-        <h2>Sin límites disponibles para esta consulta</h2>
-        <p>
-          La entidad seleccionada no tiene una geometría municipal compatible
-          cargada.
-        </p>
-      </section>
-    );
-  const poligonos = (f: Caracteristica): Coordenada[][][] =>
-    f.geometry.type === "Polygon"
-      ? [f.geometry.coordinates as Coordenada[][]]
-      : (f.geometry.coordinates as Coordenada[][][]);
-  let minX = Infinity,
-    maxX = -Infinity,
-    minY = Infinity,
-    maxY = -Infinity,
-    mayor = 1;
-  coleccion.features.forEach((f) => {
-    mayor = Math.max(mayor, f.properties.casos_confirmados);
-    poligonos(f).forEach((p) =>
-      p.forEach((a) =>
-        a.forEach(([x, y]) => {
-          minX = Math.min(minX, x);
-          maxX = Math.max(maxX, x);
-          minY = Math.min(minY, y);
-          maxY = Math.max(maxY, y);
-        }),
-      ),
-    );
-  });
-  const punto = ([x, y]: Coordenada) => ({
-    cx: ((x - minX) / (maxX - minX)) * 94 + 3,
-    cy: ((maxY - y) / (maxY - minY)) * 94 + 3,
-  });
-  const ruta = (anillo: Coordenada[]) =>
-    anillo
-      .map(
-        ([x, y], i) =>
-          `${i ? "L" : "M"} ${punto([x, y]).cx.toFixed(2)} ${punto([x, y]).cy.toFixed(2)}`,
-      )
-      .join(" ") + " Z";
-  const elegir = (f: Caracteristica) => {
-    setSeleccion(f);
-    alSeleccionar?.(f);
-  };
-  return (
-    <section id="mapa" className="mapa">
-      <div>
-        <p className="sobrelinea">Geografía / {nivel}</p>
-        <h2>{etiqueta}</h2>
-        <p className="nota">
-          La intensidad representa casos confirmados; el nombre y total se
-          muestran siempre como referencia.
-        </p>
-        {nivel === "municipio" && (
-          <label className="control-capa">
-            <input
-              type="checkbox"
-              checked={mostrarCirculos}
-              onChange={(e) => cambiarCirculos(e.target.checked)}
-            />{" "}
-            Mostrar círculos proporcionales
-          </label>
-        )}
-      </div>
-      <div className="lienzo-mapa">
-        <svg
-          viewBox="0 0 100 100"
-          role="img"
-          aria-label={`Mapa interactivo de casos confirmados por ${nivel}`}
-        >
-          {coleccion.features.map((f) => (
-            <g key={f.id}>
-              <title>{`${f.properties.nombre}: ${numero(f.properties.casos_confirmados)} casos confirmados`}</title>
-              {poligonos(f).map((p, i) => (
-                <path
-                  key={i}
-                  d={ruta(p[0])}
-                  className="entidad-mapa"
-                  style={{
-                    opacity:
-                      0.18 + (f.properties.casos_confirmados / mayor) * 0.82,
-                  }}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`${f.properties.nombre}, ${numero(f.properties.casos_confirmados)} casos confirmados`}
-                  onClick={() => elegir(f)}
-                  onKeyDown={(e) =>
-                    (e.key === "Enter" || e.key === " ") && elegir(f)
-                  }
-                />
-              ))}
-            </g>
-          ))}
-          {mostrarCirculos &&
-            coleccion.features.map(
-              (f) =>
-                f.punto_representativo &&
-                f.properties.casos_confirmados > 0 && (
-                  <circle
-                    key={`c-${f.id}`}
-                    {...punto(f.punto_representativo.coordinates)}
-                    r={
-                      1.1 +
-                      Math.sqrt(f.properties.casos_confirmados / mayor) * 4
-                    }
-                    className="circulo-casos"
-                  >
-                    <title>{`${f.properties.nombre}: ${numero(f.properties.casos_confirmados)} casos confirmados`}</title>
-                  </circle>
-                ),
-            )}
-        </svg>
-        <aside aria-live="polite">
-          <strong>
-            {seleccion?.properties.nombre ??
-              `Selecciona ${nivel === "entidad" ? "una entidad" : "un municipio"}`}
-          </strong>
-          <span>
-            {seleccion
-              ? `${numero(seleccion.properties.casos_confirmados)} casos confirmados`
-              : "La selección muestra el detalle territorial."}
-          </span>
-        </aside>
-      </div>
-    </section>
-  );
-}
+const ENTIDAD_INICIAL = "12";
+const NOMBRE_INICIAL = "Guerrero";
+const periodoAnual = (anio: string): Periodo => ({ inicio: `${anio}-01-01`, fin: `${anio}-12-31`, etiqueta: anio });
+const ultimoDia = (mes: string) => { const [anio, numeroMes] = mes.split("-").map(Number); return `${mes}-${String(new Date(anio, numeroMes, 0).getDate()).padStart(2, "0")}`; };
+const periodoPersonalizado = (desde: string, hasta: string): Periodo => ({ inicio: `${desde}-01`, fin: ultimoDia(hasta), etiqueta: `${desde} — ${hasta}` });
+const mismoRangoAnioAnterior = (periodo: Periodo): Periodo => ({ inicio: `${Number(periodo.inicio.slice(0, 4)) - 1}${periodo.inicio.slice(4)}`, fin: `${Number(periodo.fin.slice(0, 4)) - 1}${periodo.fin.slice(4)}`, etiqueta: `${Number(periodo.inicio.slice(0, 4)) - 1}${periodo.inicio.slice(4, 7)} — ${Number(periodo.fin.slice(0, 4)) - 1}${periodo.fin.slice(4, 7)}` });
+const NAV = [
+  { destino: "mapa", texto: "Mapa municipal", icono: "mapa" },
+  { destino: "panorama", texto: "Indicadores clave", icono: "panorama" },
+  { destino: "territorio", texto: "Distribución territorial", icono: "tabla" },
+  { destino: "comparativa", texto: "Comparativa temporal", icono: "tiempo" },
+  { destino: "tendencia", texto: "Tendencia de casos", icono: "grafica" },
+];
 
 export default function App() {
-  const [entidad, setEntidad] = useState("");
-  const [nombreEntidad, setNombreEntidad] = useState("");
-  const [busquedaEntidad, setBusquedaEntidad] = useState("");
+  const [tema, setTema] = useState<"light" | "dark">(() => {
+    const guardado = leerPreferencia("sivad-tema");
+    if (guardado === "light" || guardado === "dark") return guardado;
+    return typeof window !== "undefined" &&
+      window.matchMedia("(prefers-color-scheme: light)").matches
+      ? "light"
+      : "dark";
+  });
+  const [sidebarContraido, setSidebarContraido] = useState(
+    () => leerPreferencia("sivad-sidebar") !== "expandido",
+  );
+  const [menuAbierto, setMenuAbierto] = useState(false);
+  const [seccionActiva, setSeccionActiva] = useState("mapa");
+
+  const [entidad, setEntidad] = useState(ENTIDAD_INICIAL);
   const [entidades, setEntidades] = useState<Entidad[]>([]);
-  const [anio, setAnio] = useState("2020");
-  const [anios, setAnios] = useState<number[]>([2020]);
+  const [anios, setAnios] = useState<number[]>([]);
+  const [modoTemporal, setModoTemporal] = useState<ModoTemporal>("anual");
+  const [anioActual, setAnioActual] = useState("");
+  const [anioReferencia, setAnioReferencia] = useState("");
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
+  const [periodoActual, setPeriodoActual] = useState<Periodo | null>(null);
+  const [periodoReferencia, setPeriodoReferencia] = useState<Periodo | null>(null);
   const [resumen, setResumen] = useState<Resumen | null>(null);
+  const [resumenReferencia, setResumenReferencia] = useState<Resumen | null>(null);
   const [serie, setSerie] = useState<Serie[]>([]);
+  const [serieReferencia, setSerieReferencia] = useState<Serie[]>([]);
   const [territorios, setTerritorios] = useState<Territorio[]>([]);
   const [mapa, setMapa] = useState<ColeccionMapa | null>(null);
-  const [estado, setEstado] = useState<
-    "cargando" | "listo" | "prueba" | "vacio"
-  >("cargando");
-  const [circulos, setCirculos] = useState(false);
-  async function consultar(
-    evento?: FormEvent,
-    codigoDestino = entidad,
-    anioDestino = anio,
-  ) {
-    evento?.preventDefault();
-    setEstado("cargando");
-    const codigo = codigoDestino.trim();
-    const filtros = `anio_inicial=${anioDestino}&anio_final=${anioDestino}${codigo ? `&entidad=${encodeURIComponent(codigo)}` : ""}`;
-    const nivel = codigo ? "&nivel=municipio" : "";
-    try {
-      const [rr, rs, rt, rm] = await Promise.all([
-        fetch(`/api/publica/resumen/?${filtros}`),
-        fetch(`/api/publica/serie-temporal/?${filtros}`),
-        fetch(`/api/publica/distribucion-territorial/?${filtros}${nivel}`),
-        fetch(
-          codigo
-            ? `/api/publica/mapa-municipios/?${filtros}`
-            : `/api/publica/mapa-entidades/?${filtros}`,
-        ),
-      ]);
-      if (![rr, rs, rt, rm].every((r) => r.ok)) throw Error();
-      const [a, b, c, d] = await Promise.all([
-        rr.json(),
-        rs.json(),
-        rt.json(),
-        rm.json(),
-      ]);
-      setResumen(a);
-      setSerie(
-        (b.serie_mensual ?? []).map(
-          (x: { periodo: string; total: number }) => ({
-            periodo: x.periodo,
-            total_casos: x.total,
-          }),
-        ),
-      );
-      const campoNombre = codigo
-        ? "municipio_asignado__nombre"
-        : "entidad_asignada__nombre";
-      setTerritorios(
-        (c.resultados ?? [])
-          .filter((x: Record<string, unknown>) => x[campoNombre])
-          .slice(0, 6)
-          .map((x: Record<string, unknown>) => ({
-            nombre: String(x[campoNombre]),
-            total_casos: Number(x.total),
-          })),
-      );
-      setMapa(d);
-      setEstado(a.total_registros ? "listo" : "vacio");
-    } catch {
-      setResumen(prueba);
-      setSerie([]);
-      setTerritorios([]);
-      setMapa(null);
-      setEstado("prueba");
-    }
-  }
+  const [estado, setEstado] = useState<EstadoConsulta>("cargando");
+  const [seleccionId, setSeleccionId] = useState<string | null>(null);
+  const [desglose, setDesglose] = useState<Desglose | null>(null);
+  const [intento, setIntento] = useState(0);
+
   useEffect(() => {
-    Promise.all([
-      fetch("/api/publica/anios-disponibles/"),
-      fetch("/api/publica/entidades-disponibles/"),
-    ])
-      .then(async ([respuestaAnios, respuestaEntidades]) => {
-        if (!respuestaAnios.ok || !respuestaEntidades.ok) throw Error();
-        const [datosAnios, datosEntidades] = await Promise.all([
-          respuestaAnios.json(),
-          respuestaEntidades.json(),
-        ]);
-        const disponibles = datosAnios.anios?.length
-          ? datosAnios.anios
-          : [2020];
-        const reciente = String(disponibles[0]);
+    document.documentElement.dataset.theme = tema;
+    guardarPreferencia("sivad-tema", tema);
+  }, [tema]);
+  useEffect(() => {
+    guardarPreferencia("sivad-sidebar", sidebarContraido ? "contraido" : "expandido");
+  }, [sidebarContraido]);
+  useEffect(() => {
+    if (!menuAbierto) return;
+    const alTeclear = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuAbierto(false);
+    };
+    window.addEventListener("keydown", alTeclear);
+    return () => window.removeEventListener("keydown", alTeclear);
+  }, [menuAbierto]);
+
+  // Catálogos: años y entidades disponibles.
+  useEffect(() => {
+    const control = new AbortController();
+    obtenerCatalogos(control.signal)
+      .then(({ anios: datosAnios, entidades: datosEntidades }) => {
+        const disponibles: number[] = (
+          datosAnios.length ? datosAnios.map(Number) : [2020]
+        ).sort((a: number, b: number) => b - a);
         setAnios(disponibles);
-        setEntidades(datosEntidades.entidades ?? []);
-        setAnio(reciente);
-        consultar(undefined, "", reciente);
+        setEntidades(datosEntidades ?? []);
+        const actual = String(disponibles[0]);
+        const referencia = String(disponibles[1] ?? disponibles[0]);
+        setAnioActual(actual);
+        setAnioReferencia(referencia);
+        setDesde(`${actual}-01`);
+        setHasta(`${actual}-12`);
+        setPeriodoActual(periodoAnual(actual));
+        setPeriodoReferencia(periodoAnual(referencia));
       })
-      .catch(() => consultar());
-  }, []);
-  const confirmados =
-    resumen?.por_estatus.find((x) => x.estatus_caso === 2)?.total ?? 0;
-  const etiqueta = useMemo(
-    () =>
-      estado === "prueba"
-        ? "Datos de prueba · API no disponible"
-        : estado === "cargando"
-          ? "Actualizando consulta…"
-          : "Fuente: API pública SIVAD",
-    [estado],
-  );
-  const etiquetaEntidad = (item: Entidad) => `${item.codigo} · ${item.nombre}`;
-  const encontrarEntidad = (valor: string) => {
-    const consulta = valor.trim().toLocaleLowerCase("es-MX");
-    return entidades.find(
-      (item) =>
-        item.codigo === consulta ||
-        item.nombre.toLocaleLowerCase("es-MX") === consulta ||
-        etiquetaEntidad(item).toLocaleLowerCase("es-MX") === consulta,
-    );
-  };
-  const abrirEntidad = (f: Caracteristica) => {
-    setEntidad(f.properties.codigo);
-    setNombreEntidad(f.properties.nombre);
-    setBusquedaEntidad(`${f.properties.codigo} · ${f.properties.nombre}`);
-    setCirculos(false);
-    consultar(undefined, f.properties.codigo);
-  };
-  const volverMexico = () => {
-    setEntidad("");
-    setNombreEntidad("");
-    setBusquedaEntidad("");
-    setCirculos(false);
-    consultar(undefined, "");
-  };
-  const enviarConsulta = (evento: FormEvent) => {
-    evento.preventDefault();
-    const seleccionada = encontrarEntidad(busquedaEntidad);
-    if (busquedaEntidad.trim() && !seleccionada) {
-      setEstado("vacio");
+      .catch(() => {
+        if (!control.signal.aborted) setEstado("error");
+      });
+    return () => control.abort();
+  }, [intento]);
+
+  // Ambas consultas se ejecutan con exactamente el mismo tipo de filtro temporal.
+  useEffect(() => {
+    if (!periodoActual || !periodoReferencia) return;
+    const control = new AbortController();
+    const { signal } = control;
+    (async () => {
+      setEstado("cargando");
+      try {
+        const [actual, referencia] = await obtenerComparativa(periodoActual, periodoReferencia, entidad, signal);
+        if (signal.aborted) return;
+        setResumen(actual.resumen);
+        setResumenReferencia(referencia.resumen);
+        setSerie(actual.serie);
+        setSerieReferencia(referencia.serie);
+        setTerritorios(actual.territorios);
+        setMapa(actual.mapa);
+        setEstado(actual.resumen.total_registros ? "listo" : "vacio");
+      } catch {
+        if (signal.aborted) return;
+        setResumen(null);
+        setResumenReferencia(null);
+        setSerie([]);
+        setSerieReferencia([]);
+        setTerritorios([]);
+        setMapa(null);
+        setEstado("error");
+      }
+    })();
+    return () => control.abort();
+  }, [entidad, periodoActual, periodoReferencia, intento]);
+
+  // Desglose por clasificación del municipio seleccionado (bajo demanda).
+  const codigoMunicipio =
+    mapa?.features.find((f) => f.id === seleccionId)?.properties.codigo ?? "";
+  useEffect(() => {
+    if (!codigoMunicipio || !periodoActual) {
+      setDesglose(null);
       return;
     }
-    setEntidad(seleccionada?.codigo ?? "");
-    setNombreEntidad(seleccionada?.nombre ?? "");
-    setCirculos(false);
-    consultar(undefined, seleccionada?.codigo ?? "");
+    const control = new AbortController();
+    setDesglose({ estado: "cargando" });
+    obtenerDesgloseMunicipal(periodoActual, entidad, codigoMunicipio, control.signal)
+      .then((datos) =>
+        setDesglose({
+          estado: "listo",
+          confirmados: totalEstatus(datos, 2),
+          probables: totalEstatus(datos, 1),
+          descartados: totalEstatus(datos, 3),
+        }),
+      )
+      .catch(() => {
+        if (!control.signal.aborted) setDesglose({ estado: "error" });
+      });
+    return () => control.abort();
+  }, [codigoMunicipio, periodoActual, entidad]);
+
+  // Resalta en la navegación la sección visible.
+  useEffect(() => {
+    const elementos = NAV.map((n) => document.getElementById(n.destino)).filter(
+      (el): el is HTMLElement => el !== null,
+    );
+    if (!elementos.length) return;
+    const observador = new IntersectionObserver(
+      (entradas) => {
+        const visible = entradas
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+        if (visible) setSeccionActiva(visible.target.id);
+      },
+      { rootMargin: "-30% 0px -60% 0px" },
+    );
+    elementos.forEach((el) => observador.observe(el));
+    return () => observador.disconnect();
+  }, [estado]);
+
+  const nombreEntidad =
+    entidades.find((item) => item.codigo === entidad)?.nombre ??
+    (entidad === ENTIDAD_INICIAL ? NOMBRE_INICIAL : `Entidad ${entidad}`);
+  const opcionesEntidad = entidades.length
+    ? entidades
+    : [{ codigo: ENTIDAD_INICIAL, nombre: NOMBRE_INICIAL }];
+  const confirmados = resumen ? totalEstatus(resumen, 2) : 0;
+
+  const mesesSerie = useMemo(() => agruparMeses(serie), [serie]);
+  const pico = useMemo(() => {
+    let indice = -1;
+    mesesSerie.forEach((valor, i) => {
+      if (valor !== null && (indice < 0 || valor > (mesesSerie[indice] ?? 0)))
+        indice = i;
+    });
+    const total = indice >= 0 ? (mesesSerie[indice] as number) : 0;
+    return total > 0 ? { mes: MESES_LARGOS[indice], total } : null;
+  }, [mesesSerie]);
+
+  const totalMunicipios = mapa?.features.length ?? 0;
+  const municipiosConCasos =
+    mapa?.features.filter((f) => f.properties.casos_confirmados > 0).length ??
+    0;
+  const idPorNombre = useMemo(
+    () =>
+      new Map<string, string>(
+        (mapa?.features ?? []).map(
+          (f) => [normalizar(f.properties.nombre), f.id] as [string, string],
+        ),
+      ),
+    [mapa],
+  );
+  const maxTerritorio = Math.max(1, ...territorios.map((t) => t.total_casos));
+
+  const confirmadosReferencia = resumenReferencia ? totalEstatus(resumenReferencia, 2) : null;
+  const textoVariacion =
+    confirmadosReferencia === null
+      ? "Sin periodo de referencia disponible"
+      : confirmadosReferencia === 0
+        ? "Sin casos confirmados en el periodo de referencia"
+        : `${confirmados >= confirmadosReferencia ? "▲" : "▼"} ${porcentaje(
+            (Math.abs(confirmados - confirmadosReferencia) / confirmadosReferencia) * 100,
+          )} % frente a ${periodoReferencia?.etiqueta} (${numero(confirmadosReferencia)} casos)`;
+
+  const etiquetaEstado =
+    estado === "error"
+      ? "No se pudo conectar con la API pública"
+      : estado === "cargando"
+        ? "Actualizando consulta…"
+        : "Fuente: API pública SIVAD";
+
+  const elegirEntidad = (codigo: string) => {
+    setEntidad(codigo);
+    setSeleccionId(null);
   };
-  const actualizarBusquedaEntidad = (valor: string) => {
-    setBusquedaEntidad(valor);
-    const seleccionada = encontrarEntidad(valor);
-    setEntidad(seleccionada?.codigo ?? "");
-    setNombreEntidad(seleccionada?.nombre ?? "");
+  const aplicarComparacion = () => {
+    if (modoTemporal === "anual") {
+      setPeriodoActual(periodoAnual(anioActual));
+      setPeriodoReferencia(periodoAnual(anioReferencia));
+    } else if (desde && hasta && desde <= hasta) {
+      const actual = periodoPersonalizado(desde, hasta);
+      setPeriodoActual(actual);
+      setPeriodoReferencia(mismoRangoAnioAnterior(actual));
+    }
+    setSeleccionId(null);
   };
-  const coberturaGrafica = entidad
-    ? nombreEntidad || `Entidad ${entidad}`
-    : "México";
-  return (
-    <main>
-      <header className="encabezado">
-        <a className="marca" href="#inicio">
-          SIVAD <span>· vigilancia epidemiológica</span>
-        </a>
-        <nav aria-label="Navegación principal">
-          <a href="#panorama">Panorama</a>
-          <a href="#mapa">Mapa</a>
-          <a
-            href="http://localhost:8000/api/docs/"
-            target="_blank"
-            rel="noreferrer"
-          >
-            API pública
-          </a>
-        </nav>
-      </header>
-      <section id="inicio" className="titulo">
-        <p>Consulta pública / México</p>
-        <h1>Dengue: vigilancia con datos legibles.</h1>
-        <p className="subtitulo">
-          Tablero exploratorio de casos confirmados. No sustituye la
-          comunicación oficial de una alerta sanitaria.
+  const alternarSeleccion = (f: Caracteristica) =>
+    setSeleccionId((actual) => (actual === f.id ? null : f.id));
+  const seleccionarPorNombre = (nombre: string) => {
+    const id = idPorNombre.get(normalizar(nombre));
+    if (id) setSeleccionId((actual) => (actual === id ? null : id));
+  };
+  const reintentar = () => {
+    setEstado("cargando");
+    setIntento((n) => n + 1);
+  };
+
+  let contenido: ReactNode;
+  if (estado === "error") {
+    contenido = (
+      <section className="vacio" role="alert">
+        <h2>No se pudo cargar la información</h2>
+        <p>
+          La API pública no respondió. No se muestran cifras de respaldo para
+          evitar confundirlas con datos reales de {nombreEntidad}.
+        </p>
+        <button type="button" onClick={reintentar}>
+          Reintentar
+        </button>
+      </section>
+    );
+  } else if (!resumen && estado === "cargando") {
+    contenido = (
+      <section className="vacio" aria-busy="true">
+        <h2>Consultando datos epidemiológicos</h2>
+        <p>Estamos actualizando indicadores, mapa y tendencia.</p>
+      </section>
+    );
+  } else if (estado === "vacio") {
+    contenido = (
+      <section className="vacio">
+        <h2>Sin registros para esta consulta</h2>
+        <p>
+          No hay casos registrados en {nombreEntidad} durante {periodoActual?.etiqueta}. Prueba con
+          otro periodo u otra entidad.
         </p>
       </section>
-      <form className="filtros" onSubmit={enviarConsulta}>
-        <label>
-          Periodo
-          <select
-            value={anio}
-            onChange={(e) => setAnio(e.target.value)}
-            aria-label="Periodo"
-          >
-            {anios.map((valor) => (
-              <option key={valor} value={valor}>
-                {valor}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Entidad federativa
-          <input
-            value={busquedaEntidad}
-            onChange={(e) => actualizarBusquedaEntidad(e.target.value)}
-            list="lista-entidades"
-            placeholder="Buscar por clave o nombre"
-            aria-describedby="ayuda-entidad"
-          />
-          <datalist id="lista-entidades">
-            {entidades.map((item) => (
-              <option key={item.codigo} value={etiquetaEntidad(item)} />
-            ))}
-          </datalist>
-          <span id="ayuda-entidad" className="ayuda-control">
-            Escribe o selecciona una clave o nombre.
-          </span>
-        </label>
-        <button>Actualizar consulta</button>
-      </form>
-      <p className={`estado ${estado}`} role="status">
-        {etiqueta}
-      </p>
-      {entidad && (
-        <button className="volver" type="button" onClick={volverMexico}>
-          Volver al mapa de México
-        </button>
-      )}
-      {estado === "vacio" ? (
-        <section className="vacio">
-          <h2>Sin resultados para esta consulta</h2>
-          <p>
-            Selecciona una entidad de la lista o elimina el filtro para
-            consultar México completo.
-          </p>
-        </section>
-      ) : (
-        <>
-          <section id="panorama" className="metricas">
-            <article>
-              <p className="etiqueta-confirmada">Casos confirmados</p>
-              <strong>{numero(confirmados)}</strong>
-              <small>Clasificación oficial confirmada</small>
-            </article>
-            <article>
-              <p>Periodo consultado</p>
-              <strong>{anio}</strong>
-              <small>Datos históricos disponibles</small>
-            </article>
-            <article>
-              <p>Cobertura</p>
-              <strong>{entidad ? "Entidad" : "Nacional"}</strong>
-              <small>{coberturaGrafica}</small>
-            </article>
-          </section>
-          <section className="doble">
-            <article className="bloque bloque-tendencia">
-              <p className="sobrelinea">Tendencia</p>
-              {serie.length ? (
-                <Grafica datos={serie} cobertura={coberturaGrafica} />
-              ) : (
-                <>
-                  <h2>Casos confirmados mensuales — {coberturaGrafica}</h2>
-                  <p>No hay serie disponible.</p>
-                </>
-              )}
-              <p className="nota">
-                La línea muestra la evolución agregada de casos confirmados
-                seleccionados.
-              </p>
-            </article>
-            <article className="bloque">
-              <p className="sobrelinea">Territorio</p>
-              <h2>Mayor concentración</h2>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Territorio</th>
-                    <th>Confirmados</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {territorios.map((f) => (
-                    <tr key={f.nombre}>
-                      <td>{f.nombre}</td>
-                      <td>{numero(f.total_casos)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </article>
-          </section>
-          <Mapa
+    );
+  } else {
+    contenido = (
+      <>
+        <div className="zona-principal">
+          <MapaMunicipal
+            key={entidad}
             coleccion={mapa}
-            nivel={entidad ? "municipio" : "entidad"}
-            mostrarCirculos={circulos}
-            cambiarCirculos={setCirculos}
-            alSeleccionar={entidad ? undefined : abrirEntidad}
+            cobertura={nombreEntidad}
+            anio={periodoActual?.etiqueta ?? ""}
+            totalConfirmados={confirmados}
+            seleccionId={seleccionId}
+            alSeleccionar={alternarSeleccion}
+            desglose={desglose}
           />
-        </>
+          <div className="lateral">
+            <section
+              id="panorama"
+              className="indicadores"
+              aria-label="Indicadores clave"
+            >
+              <article className="ind ind-principal">
+                <p className="etiqueta-confirmada">
+                  Casos confirmados · {periodoActual?.etiqueta}
+                </p>
+                <strong>{numero(confirmados)}</strong>
+                <small>{textoVariacion}</small>
+              </article>
+              <article className="ind">
+                <p>Mes con más casos</p>
+                <strong className="texto">{pico ? pico.mes : "—"}</strong>
+                <small>
+                  {pico
+                    ? `${numero(pico.total)} casos confirmados`
+                    : "Sin serie disponible"}
+                </small>
+              </article>
+              <article className="ind">
+                <p>Municipios con casos</p>
+                <strong>
+                  {totalMunicipios ? numero(municipiosConCasos) : "—"}
+                </strong>
+                <small>
+                  {totalMunicipios
+                    ? `de ${numero(totalMunicipios)} municipios en el mapa`
+                    : "Sin geometría municipal"}
+                </small>
+              </article>
+            </section>
+            <article id="territorio" className="bloque">
+              <p className="sobrelinea">Distribución territorial</p>
+              <h2>Municipios con más casos</h2>
+              {territorios.length ? (
+                <table>
+                  <caption className="sr-only">
+                    Municipios con más casos confirmados en {nombreEntidad},{" "}
+                    {periodoActual?.etiqueta}
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">#</th>
+                      <th scope="col">Municipio</th>
+                      <th scope="col" className="num">
+                        Casos
+                      </th>
+                      <th scope="col" className="num">
+                        %
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {territorios.map((t, i) => {
+                      const id = idPorNombre.get(normalizar(t.nombre));
+                      return (
+                        <tr
+                          key={t.nombre}
+                          className={id && id === seleccionId ? "activa" : ""}
+                        >
+                          <td className="rango">{i + 1}</td>
+                          <td>
+                            <button
+                              type="button"
+                              className="fila-btn"
+                              disabled={!id}
+                              onClick={() => seleccionarPorNombre(t.nombre)}
+                            >
+                              {t.nombre}
+                            </button>
+                            <span className="barra" aria-hidden="true">
+                              <i
+                                style={{
+                                  width: `${(t.total_casos / maxTerritorio) * 100}%`,
+                                }}
+                              />
+                            </span>
+                          </td>
+                          <td className="num">{numero(t.total_casos)}</td>
+                          <td className="num">
+                            {confirmados > 0
+                              ? porcentaje((t.total_casos / confirmados) * 100)
+                              : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="nota">No hay distribución municipal disponible.</p>
+              )}
+            </article>
+          </div>
+        </div>
+        <LineaTiempoModular anios={anios} modo={modoTemporal} anioActual={anioActual} anioReferencia={anioReferencia} desde={desde} hasta={hasta} alCambiarModo={setModoTemporal} alCambiarActual={setAnioActual} alCambiarReferencia={setAnioReferencia} alCambiarDesde={setDesde} alCambiarHasta={setHasta} alAplicar={aplicarComparacion} />
+        <section id="tendencia" className="bloque bloque-tendencia">
+          <p className="sobrelinea">Evolución de casos</p>
+          {serie.length ? (
+            <GraficaComparativa actual={{ datos: serie, etiqueta: periodoActual?.etiqueta ?? "Periodo actual" }} referencia={{ datos: serieReferencia, etiqueta: periodoReferencia?.etiqueta ?? "Periodo de referencia" }} />
+          ) : (
+            <>
+              <h2>Casos confirmados por mes</h2>
+              <p className="nota">No hay serie disponible para esta consulta.</p>
+            </>
+          )}
+        </section>
+      </>
+    );
+  }
+
+  return (
+    <div className={`app-shell${sidebarContraido ? " sidebar-contraido" : ""}`}>
+      <a className="saltar" href="#contenido">
+        Saltar al contenido
+      </a>
+      {menuAbierto && (
+        <div
+          className="cortina"
+          aria-hidden="true"
+          onClick={() => setMenuAbierto(false)}
+        />
       )}
-      <footer>
-        <p>
-          Datos para consulta y análisis. Clasificación: confirmado = estatus 2.
-        </p>
+      <aside
+        id="sidebar"
+        className={`sidebar${menuAbierto ? " abierto" : ""}`}
+        aria-label="Panel de navegación"
+      >
         <a
-          href="http://localhost:8000/api/redoc/"
-          target="_blank"
-          rel="noreferrer"
+          className="marca"
+          href="#inicio"
+          aria-label="SIVAD, inicio"
+          title="SIVAD"
+          onClick={() => setMenuAbierto(false)}
         >
-          Ver referencia técnica
+          <span className="marca-icono" aria-hidden="true">
+            S
+          </span>
+          <span className="marca-texto">
+            SIVAD
+            <small>Observatorio del dengue</small>
+          </span>
         </a>
-      </footer>
-    </main>
+        <p className="nav-titulo">Explorar datos</p>
+        <nav id="navegacion" aria-label="Navegación principal">
+          {NAV.map((item) => (
+            <a
+              key={item.destino}
+              href={`#${item.destino}`}
+              aria-label={item.texto}
+              title={item.texto}
+              aria-current={seccionActiva === item.destino ? "location" : undefined}
+              onClick={() => setMenuAbierto(false)}
+            >
+              <IconoModular nombre={item.icono} />
+              <span className="nav-texto">{item.texto}</span>
+            </a>
+          ))}
+        </nav>
+        <div className="sidebar-pie">
+          <a
+            href="/api/docs/"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Documentación API, abre otra pestaña"
+            title="Documentación API"
+          >
+            <IconoModular nombre="api" />
+            <span className="nav-texto">Documentación API ↗</span>
+          </a>
+          <p>Consulta pública · México</p>
+        </div>
+      </aside>
+      <div className="area-principal">
+        <header className="encabezado">
+          <div className="barra-identidad">
+            <button
+              className="sidebar-toggle icon-button"
+              type="button"
+              aria-expanded={!sidebarContraido}
+              aria-controls="sidebar"
+              title={sidebarContraido ? "Expandir menú" : "Contraer menú"}
+              aria-label={sidebarContraido ? "Expandir menú" : "Contraer menú"}
+              onClick={() => setSidebarContraido(!sidebarContraido)}
+            >
+              <IconoModular nombre="menu" />
+            </button>
+            <button
+              className="menu-toggle icon-button"
+              type="button"
+              aria-expanded={menuAbierto}
+              aria-controls="sidebar"
+              aria-label={menuAbierto ? "Cerrar menú" : "Abrir menú"}
+              onClick={() => setMenuAbierto(!menuAbierto)}
+            >
+              <IconoModular nombre="menu" />
+            </button>
+            <span className="barra-titulo">
+              SIVAD <span>/ Explorador epidemiológico</span>
+            </span>
+          </div>
+          <button
+            className="tema-toggle"
+            type="button"
+            aria-label={`Activar modo ${tema === "light" ? "oscuro" : "claro"}`}
+            onClick={() => setTema(tema === "light" ? "dark" : "light")}
+          >
+            <IconoModular nombre={tema === "light" ? "luna" : "sol"} />
+            <span>{tema === "light" ? "Modo oscuro" : "Modo claro"}</span>
+          </button>
+        </header>
+        <main id="contenido" tabIndex={-1}>
+          <section id="inicio" className="titulo">
+            <p className="sobrelinea">
+              Datos públicos / Vigilancia epidemiológica
+            </p>
+            <h1>
+              Dengue en {nombreEntidad}
+              {periodoActual && ` · ${periodoActual.etiqueta}`}
+            </h1>
+            <p className="subtitulo">
+              Tablero exploratorio de casos confirmados. No sustituye la
+              comunicación oficial de una alerta sanitaria.
+            </p>
+          </section>
+          <form
+            className="filtros"
+            aria-label="Filtros de consulta"
+            onSubmit={(e) => e.preventDefault()}
+          >
+            <label>
+              Entidad federativa
+              <select
+                value={entidad}
+                onChange={(e) => elegirEntidad(e.target.value)}
+              >
+                {opcionesEntidad.map((item) => (
+                  <option key={item.codigo} value={item.codigo}>
+                    {item.nombre}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className={`estado ${estado}`} role="status">
+              {etiquetaEstado}
+            </p>
+          </form>
+          <div
+            className={`contenido${estado === "cargando" && resumen ? " actualizando" : ""}`}
+            aria-busy={estado === "cargando"}
+          >
+            {contenido}
+          </div>
+          <footer>
+            <p>
+              SIVAD · Datos para consulta y análisis. Clasificación: confirmado
+              = estatus 2.
+            </p>
+            <a href="/api/redoc/" target="_blank" rel="noreferrer">
+              Referencia técnica ↗
+            </a>
+          </footer>
+        </main>
+      </div>
+    </div>
   );
 }

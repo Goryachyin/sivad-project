@@ -1,6 +1,7 @@
 """Endpoints públicos para el dashboard epidemiológico."""
 
 import json
+from datetime import date
 
 from django.db.models import Count
 from django.db.models.functions import ExtractYear, TruncMonth
@@ -15,6 +16,8 @@ from apps.geografia.models import EntidadFederativa, Municipio
 FILTROS = [
     OpenApiParameter("anio_inicial", OpenApiTypes.INT, OpenApiParameter.QUERY),
     OpenApiParameter("anio_final", OpenApiTypes.INT, OpenApiParameter.QUERY),
+    OpenApiParameter("fecha_inicial", OpenApiTypes.DATE, OpenApiParameter.QUERY, description="Fecha inclusiva AAAA-MM-DD. Tiene prioridad sobre anio_inicial."),
+    OpenApiParameter("fecha_final", OpenApiTypes.DATE, OpenApiParameter.QUERY, description="Fecha inclusiva AAAA-MM-DD. Tiene prioridad sobre anio_final."),
     OpenApiParameter("entidad", OpenApiTypes.STR, OpenApiParameter.QUERY, description="Código de entidad."),
     OpenApiParameter("municipio", OpenApiTypes.STR, OpenApiParameter.QUERY, description="Requiere entidad."),
     OpenApiParameter("estatus", OpenApiTypes.STR, OpenApiParameter.QUERY, description="1 probable, 2 confirmado, 3 descartado. Predeterminado: 2."),
@@ -24,10 +27,18 @@ FILTROS = [
 def filtrar(parametros):
     consulta = RegistroEpidemiologico.objects.all()
     try:
-        if parametros.get("anio_inicial"):
+        fecha_inicial = parametros.get("fecha_inicial")
+        fecha_final = parametros.get("fecha_final")
+        if fecha_inicial:
+            consulta = consulta.filter(fecha_inicio_sintomas__gte=date.fromisoformat(fecha_inicial))
+        elif parametros.get("anio_inicial"):
             consulta = consulta.filter(fecha_inicio_sintomas__year__gte=int(parametros["anio_inicial"]))
-        if parametros.get("anio_final"):
+        if fecha_final:
+            consulta = consulta.filter(fecha_inicio_sintomas__lte=date.fromisoformat(fecha_final))
+        elif parametros.get("anio_final"):
             consulta = consulta.filter(fecha_inicio_sintomas__year__lte=int(parametros["anio_final"]))
+        if fecha_inicial and fecha_final and date.fromisoformat(fecha_inicial) > date.fromisoformat(fecha_final):
+            raise ValueError("fecha_inicial no puede ser posterior a fecha_final.")
         entidad, municipio = parametros.get("entidad"), parametros.get("municipio")
         if municipio and not entidad:
             raise ValueError("El filtro municipio requiere entidad.")
