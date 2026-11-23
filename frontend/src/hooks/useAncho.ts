@@ -6,7 +6,7 @@ export function useAncho<T extends HTMLElement>() {
   useEffect(() => {
     const elemento = ref.current;
     if (!elemento) return;
-    const medir = () => setAncho(Math.max(280, Math.round(elemento.clientWidth)));
+    const medir = () => setAncho(Math.max(220, Math.round(elemento.clientWidth)));
     medir();
     const observador = new ResizeObserver(medir);
     observador.observe(elemento);

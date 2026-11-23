@@ -2,43 +2,486 @@ import { useMemo, useRef, useState } from "react";
 import type { Caracteristica, ColeccionMapa, Coordenada, Desglose } from "../tipos";
 import { limitar, numero, porcentaje } from "../utilidades/formato";
 
-const PALETA = ["#fbc9bf", "#f59b8c", "#e8604d", "#c32a1b", "#7f0d0d"];
-const COLOR_CERO = "#e7ebee";
+const PALETA = ["#f7b8ac", "#f08575", "#e04f3d", "#bf2317", "#7f0d0d"];
+const COLOR_CERO = "var(--mapa-cero)";
 const ZOOM_MAXIMO = 8;
-type Vista = { x: number; y: number; zoom: number };
-type Arrastre = { cx: number; cy: number; x: number; y: number; escala: number; movido: boolean };
 
-export function MapaMunicipal({ coleccion, cobertura, anio, totalConfirmados, seleccionId, alSeleccionar, desglose }: { coleccion: ColeccionMapa | null; cobertura: string; anio: string; totalConfirmados: number; seleccionId: string | null; alSeleccionar: (item: Caracteristica) => void; desglose: Desglose | null }) {
+type Vista = { x: number; y: number; zoom: number };
+type Arrastre = {
+  cx: number;
+  cy: number;
+  x: number;
+  y: number;
+  escala: number;
+  movido: boolean;
+};
+
+export function MapaMunicipal({
+  coleccion,
+  cobertura,
+  anio,
+  totalConfirmados,
+  seleccionId,
+  alSeleccionar,
+  desglose,
+}: {
+  coleccion: ColeccionMapa | null;
+  cobertura: string;
+  anio: string;
+  totalConfirmados: number;
+  seleccionId: string | null;
+  alSeleccionar: (item: Caracteristica) => void;
+  desglose: Desglose | null;
+}) {
   const [activoId, setActivoId] = useState<string | null>(null);
-  const [tip, setTip] = useState<{ f: Caracteristica; x: number; y: number } | null>(null);
+  const [focoId, setFocoId] = useState<string | null>(null);
+  const [tip, setTip] = useState<{
+    f: Caracteristica;
+    x: number;
+    y: number;
+  } | null>(null);
   const [vista, setVista] = useState<Vista>({ x: 0, y: 0, zoom: 1 });
-  const lienzo = useRef<HTMLDivElement>(null); const svgRef = useRef<SVGSVGElement>(null);
-  const arrastre = useRef<Arrastre | null>(null); const omitirClick = useRef(false);
+  const lienzo = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const arrastre = useRef<Arrastre | null>(null);
+  const omitirClick = useRef(false);
 
   const geo = useMemo(() => {
-    const features = coleccion?.features ?? []; if (!features.length) return null;
-    const poligonos = (item: Caracteristica): Coordenada[][][] => item.geometry.type === "Polygon" ? [item.geometry.coordinates as Coordenada[][]] : item.geometry.coordinates as Coordenada[][][];
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    features.forEach((item) => poligonos(item).forEach((poligono) => poligono.forEach((anillo) => anillo.forEach(([lon, lat]) => { minX = Math.min(minX, lon); maxX = Math.max(maxX, lon); minY = Math.min(minY, lat); maxY = Math.max(maxY, lat); }))));
+    const features = coleccion?.features ?? [];
+    if (!features.length) return null;
+    const poligonos = (item: Caracteristica): Coordenada[][][] =>
+      item.geometry.type === "Polygon"
+        ? [item.geometry.coordinates as Coordenada[][]]
+        : (item.geometry.coordinates as Coordenada[][][]);
+    let minX = Infinity,
+      maxX = -Infinity,
+      minY = Infinity,
+      maxY = -Infinity;
+    features.forEach((item) =>
+      poligonos(item).forEach((poligono) =>
+        poligono.forEach((anillo) =>
+          anillo.forEach(([lon, lat]) => {
+            minX = Math.min(minX, lon);
+            maxX = Math.max(maxX, lon);
+            minY = Math.min(minY, lat);
+            maxY = Math.max(maxY, lat);
+          }),
+        ),
+      ),
+    );
     if (!Number.isFinite(minX)) return null;
-    const k = Math.cos((((minY + maxY) / 2) * Math.PI) / 180); const ancho = Math.max((maxX - minX) * k, 1e-9); const alto = Math.max(maxY - minY, 1e-9); const margen = 2; const escala = (100 - 2 * margen) / Math.max(ancho, alto); const vw = ancho * escala + 2 * margen; const vh = alto * escala + 2 * margen;
-    const proyectar = ([lon, lat]: Coordenada): [number, number] => [(lon - minX) * k * escala + margen, (maxY - lat) * escala + margen];
-    const anillo = (puntos: Coordenada[]) => puntos.map((coordenada, indice) => { const [x, y] = proyectar(coordenada); return `${indice ? "L" : "M"}${x.toFixed(2)} ${y.toFixed(2)}`; }).join("") + "Z";
-    const rutas = new Map(features.map((item) => [item.id, poligonos(item).flatMap((poligono) => poligono.map(anillo)).join(" ")] as [string, string]));
-    const maximo = Math.max(0, ...features.map((item) => item.properties.casos_confirmados));
+    const k = Math.cos((((minY + maxY) / 2) * Math.PI) / 180);
+    const ancho = Math.max((maxX - minX) * k, 1e-9);
+    const alto = Math.max(maxY - minY, 1e-9);
+    const margen = 2;
+    const escala = (100 - 2 * margen) / Math.max(ancho, alto);
+    const vw = ancho * escala + 2 * margen;
+    const vh = alto * escala + 2 * margen;
+    const proyectar = ([lon, lat]: Coordenada): [number, number] => [
+      (lon - minX) * k * escala + margen,
+      (maxY - lat) * escala + margen,
+    ];
+    const anillo = (puntos: Coordenada[]) =>
+      puntos
+        .map((coordenada, indice) => {
+          const [x, y] = proyectar(coordenada);
+          return `${indice ? "L" : "M"}${x.toFixed(2)} ${y.toFixed(2)}`;
+        })
+        .join("") + "Z";
+    const rutas = new Map(
+      features.map(
+        (item) =>
+          [
+            item.id,
+            poligonos(item)
+              .flatMap((poligono) => poligono.map(anillo))
+              .join(" "),
+          ] as [string, string],
+      ),
+    );
+    const maximo = Math.max(
+      0,
+      ...features.map((item) => item.properties.casos_confirmados),
+    );
     const crudos = [1, 2, 3, 4, 5].map((n) => Math.ceil(maximo * (n / 5) ** 2));
-    const limites = maximo > 0 ? crudos.filter((valor, indice) => indice === 0 ? valor >= 1 : valor > crudos[indice - 1]) : [];
-    const colores = limites.map((_, indice) => PALETA[limites.length === 1 ? 3 : Math.round((indice * (PALETA.length - 1)) / (limites.length - 1))]);
-    const color = (casos: number) => casos > 0 ? colores[Math.max(0, limites.findIndex((limite) => casos <= limite))] : COLOR_CERO;
-    const posicion = new Map<string, number>(); [...features].sort((a, b) => b.properties.casos_confirmados - a.properties.casos_confirmados).forEach((item, indice) => posicion.set(item.id, indice + 1));
+    const limites =
+      maximo > 0
+        ? crudos.filter((valor, indice) =>
+            indice === 0 ? valor >= 1 : valor > crudos[indice - 1],
+          )
+        : [];
+    const colores = limites.map(
+      (_, indice) =>
+        PALETA[
+          limites.length === 1
+            ? 3
+            : Math.round((indice * (PALETA.length - 1)) / (limites.length - 1))
+        ],
+    );
+    const color = (casos: number) =>
+      casos > 0
+        ? colores[Math.max(0, limites.findIndex((limite) => casos <= limite))]
+        : COLOR_CERO;
+    const posicion = new Map<string, number>();
+    [...features]
+      .sort(
+        (a, b) =>
+          b.properties.casos_confirmados - a.properties.casos_confirmados,
+      )
+      .forEach((item, indice) => posicion.set(item.id, indice + 1));
     return { features, rutas, vw, vh, limites, colores, color, posicion };
   }, [coleccion]);
 
-  if (!geo) return <section id="mapa" className="mapa-vacio"><p className="sobrelinea">Geografía</p><h2>Sin límites municipales disponibles</h2><p>{cobertura} no tiene una geometría municipal compatible cargada. Los indicadores y la tendencia siguen siendo válidos.</p></section>;
-  const acotar = (nueva: Vista): Vista => ({ zoom: nueva.zoom, x: limitar(nueva.x, 0, geo.vw - geo.vw / nueva.zoom), y: limitar(nueva.y, 0, geo.vh - geo.vh / nueva.zoom) });
-  const cambiarZoom = (factor: number) => setVista((anterior) => { const zoom = limitar(anterior.zoom * factor, 1, ZOOM_MAXIMO); const cx = anterior.x + geo.vw / anterior.zoom / 2; const cy = anterior.y + geo.vh / anterior.zoom / 2; return acotar({ zoom, x: cx - geo.vw / zoom / 2, y: cy - geo.vh / zoom / 2 }); });
-  const mover = (dx: number, dy: number) => setVista((anterior) => acotar({ zoom: anterior.zoom, x: anterior.x + (dx * geo.vw * .25) / anterior.zoom, y: anterior.y + (dy * geo.vh * .25) / anterior.zoom }));
-  const seleccion = geo.features.find((item) => item.id === seleccionId) ?? null; const activo = geo.features.find((item) => item.id === activoId) ?? null; const conZoom = vista.zoom > 1;
-  const etiquetaCasos = (item: Caracteristica) => `${numero(item.properties.casos_confirmados)} casos confirmados`;
-  return <section id="mapa" className="mapa"><div className="mapa-cabecera"><div><p className="sobrelinea">Geografía · {cobertura} · {anio}</p><h2>Casos confirmados por municipio</h2><p className="nota" id="ayuda-mapa">Pasa el cursor o haz clic en un municipio para ver su detalle. Acércate con los botones y arrastra el mapa para moverlo.</p></div></div><div className="mapa-barra" role="group" aria-label="Controles del mapa"><div className="grupo-zoom"><button type="button" disabled={vista.zoom <= 1} onClick={() => cambiarZoom(1 / 1.5)} aria-label="Alejar mapa">−</button><output aria-label="Nivel de zoom">{Math.round(vista.zoom * 100)}%</output><button type="button" disabled={vista.zoom >= ZOOM_MAXIMO} onClick={() => cambiarZoom(1.5)} aria-label="Acercar mapa">+</button></div><button type="button" disabled={!conZoom} onClick={() => setVista({ x: 0, y: 0, zoom: 1 })}>Restablecer vista</button><div className="grupo-desplazar" role="group" aria-label="Desplazar mapa"><button type="button" disabled={!conZoom} aria-label="Ver zona izquierda" onClick={() => mover(-1, 0)}>←</button><button type="button" disabled={!conZoom} aria-label="Ver zona superior" onClick={() => mover(0, -1)}>↑</button><button type="button" disabled={!conZoom} aria-label="Ver zona inferior" onClick={() => mover(0, 1)}>↓</button><button type="button" disabled={!conZoom} aria-label="Ver zona derecha" onClick={() => mover(1, 0)}>→</button></div></div><div className={`lienzo-mapa${conZoom ? " con-zoom" : ""}`} ref={lienzo}><svg ref={svgRef} viewBox={`${vista.x.toFixed(2)} ${vista.y.toFixed(2)} ${(geo.vw / vista.zoom).toFixed(2)} ${(geo.vh / vista.zoom).toFixed(2)}`} role="group" aria-label={`Mapa interactivo de casos confirmados por municipio en ${cobertura}`} aria-describedby="ayuda-mapa" onPointerDown={(evento) => { omitirClick.current = false; if (evento.button !== 0 || vista.zoom <= 1) return; arrastre.current = { cx: evento.clientX, cy: evento.clientY, x: vista.x, y: vista.y, escala: svgRef.current?.getScreenCTM()?.a ?? 1, movido: false }; }} onPointerMove={(evento) => { const inicio = arrastre.current; if (!inicio) return; const dx = evento.clientX - inicio.cx; const dy = evento.clientY - inicio.cy; if (!inicio.movido) { if (Math.hypot(dx, dy) < 5) return; inicio.movido = true; omitirClick.current = true; evento.currentTarget.setPointerCapture(evento.pointerId); setTip(null); } setVista((anterior) => acotar({ zoom: anterior.zoom, x: inicio.x - dx / inicio.escala, y: inicio.y - dy / inicio.escala })); }} onPointerUp={() => { arrastre.current = null; }} onPointerCancel={() => { arrastre.current = null; }} onLostPointerCapture={() => { arrastre.current = null; }}>{geo.features.map((item) => <path key={item.id} d={geo.rutas.get(item.id)} fillRule="evenodd" className="municipio" style={{ fill: geo.color(item.properties.casos_confirmados) }} role="button" tabIndex={0} aria-pressed={item.id === seleccionId} aria-label={`${item.properties.nombre}, ${etiquetaCasos(item)}`} onClick={() => { if (!omitirClick.current) alSeleccionar(item); }} onKeyDown={(evento) => { if (evento.key === "Enter" || evento.key === " ") { evento.preventDefault(); alSeleccionar(item); } }} onMouseEnter={() => setActivoId(item.id)} onMouseMove={(evento) => { if (arrastre.current?.movido) return; const caja = lienzo.current?.getBoundingClientRect(); if (caja) setTip({ f: item, x: evento.clientX - caja.left, y: evento.clientY - caja.top }); }} onMouseLeave={() => { setActivoId(null); setTip(null); }} onFocus={(evento) => { setActivoId(item.id); const caja = evento.currentTarget.getBBox(); const ancho = geo.vw / vista.zoom; const alto = geo.vh / vista.zoom; if (caja.x < vista.x || caja.y < vista.y || caja.x + caja.width > vista.x + ancho || caja.y + caja.height > vista.y + alto) setVista((anterior) => acotar({ zoom: anterior.zoom, x: caja.x + caja.width / 2 - ancho / 2, y: caja.y + caja.height / 2 - alto / 2 })); }} onBlur={() => setActivoId(null)} />)}{activo && activo.id !== seleccionId && <path d={geo.rutas.get(activo.id)} fillRule="evenodd" className="contorno-activo" />}{seleccion && <path d={geo.rutas.get(seleccion.id)} fillRule="evenodd" className="contorno-seleccion" />}</svg>{tip && <div className={`tooltip-mapa${tip.x > (lienzo.current?.clientWidth ?? 0) / 2 ? " izq" : ""}`} style={{ left: tip.x, top: tip.y }}><strong>{tip.f.properties.nombre}</strong><span>{etiquetaCasos(tip.f)}</span></div>}</div><ul className="leyenda" aria-label="Leyenda de casos confirmados"><li><i style={{ background: COLOR_CERO }} />0</li>{geo.limites.map((limite, indice) => { const desde = (indice ? geo.limites[indice - 1] : 0) + 1; return <li key={limite}><i style={{ background: geo.colores[indice] }} />{desde === limite ? numero(limite) : `${numero(desde)}–${numero(limite)}`}</li>; })}</ul><p className="nota-leyenda">Los colores muestran conteos de casos confirmados por tramos (más detalle en valores bajos); no miden incidencia por población ni nivel de riesgo.</p><aside className="detalle-mapa" aria-live="polite">{seleccion ? <><div className="detalle-linea"><strong>{seleccion.properties.nombre}</strong><span>{etiquetaCasos(seleccion)}{totalConfirmados > 0 && ` · ${porcentaje((seleccion.properties.casos_confirmados / totalConfirmados) * 100)} % de la entidad`}{` · posición ${geo.posicion.get(seleccion.id)} de ${geo.features.length}`}</span></div>{desglose?.estado === "listo" ? <dl className="desglose"><div><dt>Confirmados</dt><dd>{numero(desglose.confirmados)}</dd></div><div><dt>Probables</dt><dd>{numero(desglose.probables)}</dd></div><div><dt>Descartados</dt><dd>{numero(desglose.descartados)}</dd></div></dl> : <p className="desglose-estado">{desglose?.estado === "error" ? "Desglose por clasificación no disponible." : "Cargando desglose por clasificación…"}</p>}</> : <div className="detalle-linea"><strong>Sin selección</strong><span>El detalle del municipio aparece aquí.</span></div>}</aside></section>;
+  if (!geo) {
+    return (
+      <section id="mapa" className="mapa-vacio">
+        <p className="sobrelinea">Geografía</p>
+        <h2>Sin límites municipales disponibles</h2>
+        <p>
+          {cobertura} no tiene una geometría municipal compatible cargada. Los
+          indicadores y la tendencia siguen siendo válidos.
+        </p>
+      </section>
+    );
+  }
+
+  const acotar = (nueva: Vista): Vista => ({
+    zoom: nueva.zoom,
+    x: limitar(nueva.x, 0, geo.vw - geo.vw / nueva.zoom),
+    y: limitar(nueva.y, 0, geo.vh - geo.vh / nueva.zoom),
+  });
+  const cambiarZoom = (factor: number) =>
+    setVista((anterior) => {
+      const zoom = limitar(anterior.zoom * factor, 1, ZOOM_MAXIMO);
+      const cx = anterior.x + geo.vw / anterior.zoom / 2;
+      const cy = anterior.y + geo.vh / anterior.zoom / 2;
+      return acotar({
+        zoom,
+        x: cx - geo.vw / zoom / 2,
+        y: cy - geo.vh / zoom / 2,
+      });
+    });
+  const mover = (dx: number, dy: number) =>
+    setVista((anterior) =>
+      acotar({
+        zoom: anterior.zoom,
+        x: anterior.x + (dx * geo.vw * 0.25) / anterior.zoom,
+        y: anterior.y + (dy * geo.vh * 0.25) / anterior.zoom,
+      }),
+    );
+
+  const seleccion = geo.features.find((item) => item.id === seleccionId) ?? null;
+  const activo = geo.features.find((item) => item.id === activoId) ?? null;
+  const enfocado = geo.features.find((item) => item.id === focoId) ?? null;
+  const conZoom = vista.zoom > 1;
+  const etiquetaCasos = (item: Caracteristica) =>
+    `${numero(item.properties.casos_confirmados)} casos confirmados`;
+
+  return (
+    <section id="mapa" className="mapa">
+      <div className="mapa-cabecera">
+        <div>
+          <p className="sobrelinea">
+            Geografía · {cobertura} · {anio}
+          </p>
+          <h2>Casos confirmados por municipio</h2>
+          <p className="nota" id="ayuda-mapa">
+            Selecciona un municipio para ver su desglose. Usa los controles de
+            acercamiento y arrastra el mapa para explorar.
+          </p>
+        </div>
+      </div>
+
+      <div className="mapa-barra" role="group" aria-label="Controles del mapa">
+        <div className="grupo-zoom">
+          <button
+            type="button"
+            disabled={vista.zoom <= 1}
+            onClick={() => cambiarZoom(1 / 1.5)}
+            aria-label="Alejar mapa"
+          >
+            −
+          </button>
+          <output aria-label="Nivel de zoom">{Math.round(vista.zoom * 100)}%</output>
+          <button
+            type="button"
+            disabled={vista.zoom >= ZOOM_MAXIMO}
+            onClick={() => cambiarZoom(1.5)}
+            aria-label="Acercar mapa"
+          >
+            +
+          </button>
+        </div>
+        <button
+          type="button"
+          disabled={!conZoom}
+          onClick={() => setVista({ x: 0, y: 0, zoom: 1 })}
+        >
+          Restablecer vista
+        </button>
+        <div
+          className="grupo-desplazar"
+          role="group"
+          aria-label="Desplazar mapa"
+        >
+          <button
+            type="button"
+            disabled={!conZoom}
+            aria-label="Ver zona izquierda"
+            onClick={() => mover(-1, 0)}
+          >
+            ←
+          </button>
+          <button
+            type="button"
+            disabled={!conZoom}
+            aria-label="Ver zona superior"
+            onClick={() => mover(0, -1)}
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            disabled={!conZoom}
+            aria-label="Ver zona inferior"
+            onClick={() => mover(0, 1)}
+          >
+            ↓
+          </button>
+          <button
+            type="button"
+            disabled={!conZoom}
+            aria-label="Ver zona derecha"
+            onClick={() => mover(1, 0)}
+          >
+            →
+          </button>
+        </div>
+      </div>
+
+      <div className={`lienzo-mapa${conZoom ? " con-zoom" : ""}`} ref={lienzo}>
+        <svg
+          ref={svgRef}
+          viewBox={`${vista.x.toFixed(2)} ${vista.y.toFixed(2)} ${(geo.vw / vista.zoom).toFixed(2)} ${(geo.vh / vista.zoom).toFixed(2)}`}
+          role="group"
+          aria-label={`Mapa interactivo de casos confirmados por municipio en ${cobertura}`}
+          aria-describedby="ayuda-mapa"
+          onPointerDown={(evento) => {
+            omitirClick.current = false;
+            if (evento.button !== 0 || vista.zoom <= 1) return;
+            arrastre.current = {
+              cx: evento.clientX,
+              cy: evento.clientY,
+              x: vista.x,
+              y: vista.y,
+              escala: svgRef.current?.getScreenCTM()?.a ?? 1,
+              movido: false,
+            };
+          }}
+          onPointerMove={(evento) => {
+            const inicio = arrastre.current;
+            if (!inicio) return;
+            const dx = evento.clientX - inicio.cx;
+            const dy = evento.clientY - inicio.cy;
+            if (!inicio.movido) {
+              if (Math.hypot(dx, dy) < 5) return;
+              inicio.movido = true;
+              omitirClick.current = true;
+              evento.currentTarget.setPointerCapture(evento.pointerId);
+              setTip(null);
+            }
+            setVista((anterior) =>
+              acotar({
+                zoom: anterior.zoom,
+                x: inicio.x - dx / inicio.escala,
+                y: inicio.y - dy / inicio.escala,
+              }),
+            );
+          }}
+          onPointerUp={() => {
+            arrastre.current = null;
+          }}
+          onPointerCancel={() => {
+            arrastre.current = null;
+          }}
+          onLostPointerCapture={() => {
+            arrastre.current = null;
+          }}
+        >
+          {geo.features.map((item) => (
+            <path
+              key={item.id}
+              d={geo.rutas.get(item.id)}
+              fillRule="evenodd"
+              className="municipio"
+              style={{ fill: geo.color(item.properties.casos_confirmados) }}
+              role="button"
+              tabIndex={0}
+              aria-pressed={item.id === seleccionId}
+              aria-label={`${item.properties.nombre}, ${etiquetaCasos(item)}`}
+              onClick={() => {
+                if (!omitirClick.current) alSeleccionar(item);
+              }}
+              onKeyDown={(evento) => {
+                if (evento.key === "Enter" || evento.key === " ") {
+                  evento.preventDefault();
+                  alSeleccionar(item);
+                }
+              }}
+              onMouseEnter={() => setActivoId(item.id)}
+              onMouseMove={(evento) => {
+                if (arrastre.current?.movido) return;
+                const caja = lienzo.current?.getBoundingClientRect();
+                if (caja) {
+                  setTip({
+                    f: item,
+                    x: evento.clientX - caja.left,
+                    y: evento.clientY - caja.top,
+                  });
+                }
+              }}
+              onMouseLeave={() => {
+                setActivoId(null);
+                setTip(null);
+              }}
+              onFocus={(evento) => {
+                setFocoId(item.id);
+                setActivoId(item.id);
+                const caja = evento.currentTarget.getBBox();
+                const ancho = geo.vw / vista.zoom;
+                const alto = geo.vh / vista.zoom;
+                if (
+                  caja.x < vista.x ||
+                  caja.y < vista.y ||
+                  caja.x + caja.width > vista.x + ancho ||
+                  caja.y + caja.height > vista.y + alto
+                ) {
+                  setVista((anterior) =>
+                    acotar({
+                      zoom: anterior.zoom,
+                      x: caja.x + caja.width / 2 - ancho / 2,
+                      y: caja.y + caja.height / 2 - alto / 2,
+                    }),
+                  );
+                }
+              }}
+              onBlur={() => {
+                setFocoId(null);
+                setActivoId(null);
+              }}
+            />
+          ))}
+          {activo && activo.id !== seleccionId && activo.id !== focoId && (
+            <path
+              d={geo.rutas.get(activo.id)}
+              fillRule="evenodd"
+              className="contorno-activo"
+            />
+          )}
+          {seleccion && (
+            <>
+              <path
+                d={geo.rutas.get(seleccion.id)}
+                fillRule="evenodd"
+                className="contorno-seleccion-halo"
+              />
+              <path
+                d={geo.rutas.get(seleccion.id)}
+                fillRule="evenodd"
+                className="contorno-seleccion"
+              />
+            </>
+          )}
+          {enfocado && (
+            <>
+              <path
+                d={geo.rutas.get(enfocado.id)}
+                fillRule="evenodd"
+                className="contorno-foco-halo"
+              />
+              <path
+                d={geo.rutas.get(enfocado.id)}
+                fillRule="evenodd"
+                className="contorno-foco"
+              />
+            </>
+          )}
+        </svg>
+        {tip && (
+          <div
+            className={`tooltip-mapa${tip.x > (lienzo.current?.clientWidth ?? 0) / 2 ? " izq" : ""}${tip.y < 64 ? " abajo" : ""}`}
+            style={{ left: tip.x, top: tip.y }}
+          >
+            <strong>{tip.f.properties.nombre}</strong>
+            <span>{etiquetaCasos(tip.f)}</span>
+          </div>
+        )}
+      </div>
+
+      <ul className="leyenda" aria-label="Leyenda de casos confirmados">
+        <li>
+          <i style={{ background: COLOR_CERO }} />0
+        </li>
+        {geo.limites.map((limite, indice) => {
+          const desde = (indice ? geo.limites[indice - 1] : 0) + 1;
+          return (
+            <li key={limite}>
+              <i style={{ background: geo.colores[indice] }} />
+              {desde === limite
+                ? numero(limite)
+                : `${numero(desde)}–${numero(limite)}`}
+            </li>
+          );
+        })}
+      </ul>
+      <p className="nota-leyenda">
+        Los colores muestran conteos de casos confirmados por tramos (más
+        detalle en valores bajos); no miden incidencia por población ni nivel de
+        riesgo.
+      </p>
+
+      <aside className="detalle-mapa" aria-live="polite">
+        {seleccion ? (
+          <>
+            <div className="detalle-linea">
+              <strong>{seleccion.properties.nombre}</strong>
+              <span>
+                {etiquetaCasos(seleccion)}
+                {totalConfirmados > 0 &&
+                  ` · ${porcentaje((seleccion.properties.casos_confirmados / totalConfirmados) * 100)} % de la entidad`}
+                {` · posición ${geo.posicion.get(seleccion.id)} de ${geo.features.length}`}
+              </span>
+            </div>
+            {desglose?.estado === "listo" ? (
+              <dl className="desglose">
+                <div>
+                  <dt>Confirmados</dt>
+                  <dd>{numero(desglose.confirmados)}</dd>
+                </div>
+                <div>
+                  <dt>Probables</dt>
+                  <dd>{numero(desglose.probables)}</dd>
+                </div>
+                <div>
+                  <dt>Descartados</dt>
+                  <dd>{numero(desglose.descartados)}</dd>
+                </div>
+              </dl>
+            ) : (
+              <p className="desglose-estado">
+                {desglose?.estado === "error"
+                  ? "Desglose por clasificación no disponible."
+                  : "Cargando desglose por clasificación…"}
+              </p>
+            )}
+          </>
+        ) : (
+          <div className="detalle-linea">
+            <strong>Sin selección</strong>
+            <span>El detalle del municipio aparece aquí.</span>
+          </div>
+        )}
+      </aside>
+    </section>
+  );
 }

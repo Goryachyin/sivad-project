@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useAncho } from "../hooks/useAncho";
 import type { Serie } from "../tipos";
 import {
@@ -19,6 +19,7 @@ export function GraficaComparativa({
   referencia: SerieComparada;
 }) {
   const [ref, ancho] = useAncho<HTMLDivElement>();
+  const [mesActivo, setMesActivo] = useState<number | null>(null);
   const datosActuales = useMemo(
     () => agruparMeses(actual.datos),
     [actual.datos],
@@ -27,25 +28,27 @@ export function GraficaComparativa({
     () => agruparMeses(referencia.datos),
     [referencia.datos],
   );
+
   const compacto = ancho < 520;
   const alto = compacto ? 240 : 300;
-  const margen = { i: compacto ? 42 : 56, d: 16, s: 28, b: 30 };
+  const margen = { i: compacto ? 44 : 56, d: 16, s: 28, b: 30 };
   const valores = [...datosActuales, ...datosReferencia].filter(
     (valor): valor is number => valor !== null,
   );
-  const limite =
-    Math.ceil(
-      Math.max(1, ...valores) / pasoBonito(Math.max(1, ...valores) / 4),
-    ) * pasoBonito(Math.max(1, ...valores) / 4);
-  const paso = pasoBonito(limite / 4);
+  const maxValor = Math.max(1, ...valores);
+  const paso = pasoBonito(maxValor / 4);
+  const limite = Math.ceil(maxValor / paso) * paso;
   const marcas = Array.from(
     { length: Math.round(limite / paso) + 1 },
     (_, indice) => indice * paso,
   );
+
   const x = (indice: number) =>
     margen.i + (indice / 11) * (ancho - margen.i - margen.d);
   const y = (valor: number) =>
     alto - margen.b - (valor / limite) * (alto - margen.b - margen.s);
+  const anchoBanda = (ancho - margen.i - margen.d) / 11;
+
   const tramos = (datos: (number | null)[]) => {
     const resultado: number[][] = [];
     datos.forEach((valor, indice) => {
@@ -60,6 +63,10 @@ export function GraficaComparativa({
     tramo
       .map((indice) => `${x(indice)},${y(datos[indice] as number)}`)
       .join(" ");
+
+  const valorTexto = (v: number | null) => (v === null ? "sin dato" : numero(v));
+  const xActivo = mesActivo !== null ? x(mesActivo) : 0;
+
   return (
     <figure className="figura-grafica">
       <h2>Casos confirmados por mes</h2>
@@ -69,13 +76,17 @@ export function GraficaComparativa({
         <span className="leyenda-serie referencia" />
         {referencia.etiqueta}
       </figcaption>
-      <div ref={ref} className="contenedor-grafica">
+      <div
+        ref={ref}
+        className="contenedor-grafica"
+        onMouseLeave={() => setMesActivo(null)}
+      >
         <svg
           className="grafica"
           width={ancho}
           height={alto}
           viewBox={`0 0 ${ancho} ${alto}`}
-          role="img"
+          role="group"
           aria-label={`Comparación mensual de casos confirmados: ${actual.etiqueta} frente a ${referencia.etiqueta}`}
         >
           <text x="2" y="12">
@@ -95,7 +106,13 @@ export function GraficaComparativa({
             </g>
           ))}
           {MESES.map((mes, indice) => (
-            <text key={mes} x={x(indice)} y={alto - 10} textAnchor="middle">
+            <text
+              key={mes}
+              x={x(indice)}
+              y={alto - 10}
+              textAnchor="middle"
+              className={mesActivo === indice ? "mes-eje-activo" : undefined}
+            >
               {compacto && indice % 3 !== 0 && indice !== 11 ? "" : mes}
             </text>
           ))}
@@ -120,18 +137,14 @@ export function GraficaComparativa({
               points={puntos(datosActuales, tramo)}
             />
           ))}
-          {datosActuales.map((valor, indice) =>
-            valor === null ? null : (
-              <circle
-                key={`actual-${indice}`}
-                className="marcador"
-                cx={x(indice)}
-                cy={y(valor)}
-                r="3.5"
-              >
-                <title>{`${MESES_LARGOS[indice]}, ${actual.etiqueta}: ${numero(valor)} casos`}</title>
-              </circle>
-            ),
+          {mesActivo !== null && (
+            <line
+              className="guia-mes"
+              x1={xActivo}
+              x2={xActivo}
+              y1={margen.s}
+              y2={alto - margen.b}
+            />
           )}
           {datosReferencia.map((valor, indice) =>
             valor === null ? null : (
@@ -140,13 +153,76 @@ export function GraficaComparativa({
                 className="marcador-referencia"
                 cx={x(indice)}
                 cy={y(valor)}
-                r="3"
-              >
-                <title>{`${MESES_LARGOS[indice]}, ${referencia.etiqueta}: ${numero(valor)} casos`}</title>
-              </circle>
+                r={mesActivo === indice ? 5 : 3}
+              />
             ),
           )}
+          {datosActuales.map((valor, indice) =>
+            valor === null ? null : (
+              <circle
+                key={`actual-${indice}`}
+                className="marcador"
+                cx={x(indice)}
+                cy={y(valor)}
+                r={mesActivo === indice ? 5.5 : 3.5}
+              />
+            ),
+          )}
+          {MESES.map((mes, indice) => {
+            const valAct = datosActuales[indice];
+            const valRef = datosReferencia[indice];
+            const bx = Math.max(margen.i - 8, x(indice) - anchoBanda / 2);
+            const bw = Math.min(
+              ancho - margen.d + 8 - bx,
+              anchoBanda,
+            );
+            return (
+              <g
+                key={`inter-${mes}`}
+                className="punto"
+                tabIndex={0}
+                role="button"
+                aria-label={`${MESES_LARGOS[indice]}: ${actual.etiqueta} ${valorTexto(valAct)} casos, ${referencia.etiqueta} ${valorTexto(valRef)} casos`}
+                onMouseEnter={() => setMesActivo(indice)}
+                onFocus={() => setMesActivo(indice)}
+                onBlur={() => setMesActivo(null)}
+                onClick={() => setMesActivo(indice)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setMesActivo((prev) => (prev === indice ? null : indice));
+                  }
+                }}
+              >
+                <rect
+                  className="zona-toque"
+                  x={bx}
+                  y={margen.s}
+                  width={Math.max(18, bw)}
+                  height={alto - margen.s - margen.b}
+                />
+              </g>
+            );
+          })}
         </svg>
+        {mesActivo !== null && (
+          <div
+            className={`tooltip-grafica${mesActivo >= 7 ? " izq" : ""}`}
+            style={{ left: xActivo, top: margen.s }}
+            role="status"
+          >
+            <strong>{MESES_LARGOS[mesActivo]}</strong>
+            <span>
+              <i className="punto-leyenda actual" />
+              {actual.etiqueta}: <b>{valorTexto(datosActuales[mesActivo])}</b>
+            </span>
+            <span>
+              <i className="punto-leyenda referencia" />
+              {referencia.etiqueta}:{" "}
+              <b>{valorTexto(datosReferencia[mesActivo])}</b>
+            </span>
+          </div>
+        )}
       </div>
       <details className="datos-grafica">
         <summary>Ver datos mensuales en tabla</summary>
@@ -169,16 +245,8 @@ export function GraficaComparativa({
             {MESES.map((mes, indice) => (
               <tr key={mes}>
                 <th scope="row">{MESES_LARGOS[indice]}</th>
-                <td className="num">
-                  {datosActuales[indice] === null
-                    ? "sin dato"
-                    : numero(datosActuales[indice] as number)}
-                </td>
-                <td className="num">
-                  {datosReferencia[indice] === null
-                    ? "sin dato"
-                    : numero(datosReferencia[indice] as number)}
-                </td>
+                <td className="num">{valorTexto(datosActuales[indice])}</td>
+                <td className="num">{valorTexto(datosReferencia[indice])}</td>
               </tr>
             ))}
           </tbody>

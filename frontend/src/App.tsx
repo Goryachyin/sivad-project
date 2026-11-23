@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { obtenerCatalogos, obtenerComparativa, obtenerDesgloseMunicipal, type Periodo } from "./api/publica";
 import { GraficaComparativa } from "./componentes/GraficaComparativa";
 import { Icono as IconoModular } from "./componentes/Icono";
@@ -35,6 +35,14 @@ export default function App() {
   );
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [seccionActiva, setSeccionActiva] = useState("mapa");
+  const menuBtnRef = useRef<HTMLButtonElement>(null);
+
+  const cerrarMenu = (devolverFoco = false) => {
+    setMenuAbierto(false);
+    if (devolverFoco) {
+      requestAnimationFrame(() => menuBtnRef.current?.focus());
+    }
+  };
 
   const [entidad, setEntidad] = useState(ENTIDAD_INICIAL);
   const [entidades, setEntidades] = useState<Entidad[]>([]);
@@ -67,7 +75,7 @@ export default function App() {
   useEffect(() => {
     if (!menuAbierto) return;
     const alTeclear = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMenuAbierto(false);
+      if (e.key === "Escape") cerrarMenu(true);
     };
     window.addEventListener("keydown", alTeclear);
     return () => window.removeEventListener("keydown", alTeclear);
@@ -77,7 +85,7 @@ export default function App() {
   useEffect(() => {
     const control = new AbortController();
     obtenerCatalogos(control.signal)
-      .then(({ anios: datosAnios, entidades: datosEntidades }) => {
+      .then(({ anios: datosAnios, entidades: datosEntidades }: { anios: number[]; entidades: Entidad[] }) => {
         const disponibles: number[] = (
           datosAnios.length ? datosAnios.map(Number) : [2020]
         ).sort((a: number, b: number) => b - a);
@@ -140,7 +148,7 @@ export default function App() {
     const control = new AbortController();
     setDesglose({ estado: "cargando" });
     obtenerDesgloseMunicipal(periodoActual, entidad, codigoMunicipio, control.signal)
-      .then((datos) =>
+      .then((datos: Resumen) =>
         setDesglose({
           estado: "listo",
           confirmados: totalEstatus(datos, 2),
@@ -154,23 +162,43 @@ export default function App() {
     return () => control.abort();
   }, [codigoMunicipio, periodoActual, entidad]);
 
-  // Resalta en la navegación la sección visible.
+  // Resalta en la navegación la sección visible de forma determinista.
   useEffect(() => {
-    const elementos = NAV.map((n) => document.getElementById(n.destino)).filter(
-      (el): el is HTMLElement => el !== null,
-    );
-    if (!elementos.length) return;
-    const observador = new IntersectionObserver(
-      (entradas) => {
-        const visible = entradas
-          .filter((e) => e.isIntersecting)
-          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
-        if (visible) setSeccionActiva(visible.target.id);
-      },
-      { rootMargin: "-30% 0px -60% 0px" },
-    );
-    elementos.forEach((el) => observador.observe(el));
-    return () => observador.disconnect();
+    let raf = 0;
+    const actualizar = () => {
+      raf = 0;
+      const elementos = NAV.map((n) => document.getElementById(n.destino)).filter(
+        (el): el is HTMLElement => el !== null,
+      );
+      if (!elementos.length) return;
+      if (window.scrollY < 120) {
+        setSeccionActiva(elementos[0].id);
+        return;
+      }
+      const alFinal =
+        window.innerHeight + window.scrollY >=
+        document.documentElement.scrollHeight - 24;
+      if (alFinal) {
+        setSeccionActiva(elementos[elementos.length - 1].id);
+        return;
+      }
+      let actual = elementos[0].id;
+      for (const el of elementos) {
+        if (el.getBoundingClientRect().top <= 140) actual = el.id;
+      }
+      setSeccionActiva(actual);
+    };
+    const alDesplazar = () => {
+      if (!raf) raf = requestAnimationFrame(actualizar);
+    };
+    actualizar();
+    window.addEventListener("scroll", alDesplazar, { passive: true });
+    window.addEventListener("resize", alDesplazar);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", alDesplazar);
+      window.removeEventListener("resize", alDesplazar);
+    };
   }, [estado]);
 
   const nombreEntidad =
@@ -226,6 +254,19 @@ export default function App() {
 
   const elegirEntidad = (codigo: string) => {
     setEntidad(codigo);
+    setSeleccionId(null);
+  };
+  const elegirAnioRapido = (valor: string) => {
+    if (valor === "rango") return;
+    const indice = anios.findIndex((a) => String(a) === valor);
+    const referencia = String(
+      anios[indice + 1] ?? anios.find((a) => String(a) !== valor) ?? valor,
+    );
+    setModoTemporal("anual");
+    setAnioActual(valor);
+    setAnioReferencia(referencia);
+    setPeriodoActual(periodoAnual(valor));
+    setPeriodoReferencia(periodoAnual(referencia));
     setSeleccionId(null);
   };
   const aplicarComparacion = () => {
@@ -418,7 +459,7 @@ export default function App() {
         <div
           className="cortina"
           aria-hidden="true"
-          onClick={() => setMenuAbierto(false)}
+          onClick={() => cerrarMenu(true)}
         />
       )}
       <aside
@@ -426,21 +467,33 @@ export default function App() {
         className={`sidebar${menuAbierto ? " abierto" : ""}`}
         aria-label="Panel de navegación"
       >
-        <a
-          className="marca"
-          href="#inicio"
-          aria-label="SIVAD, inicio"
-          title="SIVAD"
-          onClick={() => setMenuAbierto(false)}
-        >
-          <span className="marca-icono" aria-hidden="true">
-            S
-          </span>
-          <span className="marca-texto">
-            SIVAD
-            <small>Observatorio del dengue</small>
-          </span>
-        </a>
+        <div className="sidebar-cabecera">
+          <a
+            className="marca"
+            href="#inicio"
+            aria-label="Explorador epidemiológico del dengue en Guerrero, inicio"
+            title="Explorador epidemiológico del dengue en Guerrero"
+            onClick={() => {
+              setSeccionActiva("mapa");
+              cerrarMenu(false);
+            }}
+          >
+            <span className="marca-icono" aria-hidden="true">
+              D
+            </span>
+            <span className="marca-texto">
+              <small>Observatorio del dengue</small>
+            </span>
+          </a>
+          <button
+            className="drawer-cerrar icon-button"
+            type="button"
+            aria-label="Cerrar menú"
+            onClick={() => cerrarMenu(true)}
+          >
+            <IconoModular nombre="cerrar" />
+          </button>
+        </div>
         <p className="nav-titulo">Explorar datos</p>
         <nav id="navegacion" aria-label="Navegación principal">
           {NAV.map((item) => (
@@ -450,7 +503,10 @@ export default function App() {
               aria-label={item.texto}
               title={item.texto}
               aria-current={seccionActiva === item.destino ? "location" : undefined}
-              onClick={() => setMenuAbierto(false)}
+              onClick={() => {
+                setSeccionActiva(item.destino);
+                cerrarMenu(false);
+              }}
             >
               <IconoModular nombre={item.icono} />
               <span className="nav-texto">{item.texto}</span>
@@ -486,6 +542,7 @@ export default function App() {
               <IconoModular nombre="menu" />
             </button>
             <button
+              ref={menuBtnRef}
               className="menu-toggle icon-button"
               type="button"
               aria-expanded={menuAbierto}
@@ -496,7 +553,7 @@ export default function App() {
               <IconoModular nombre="menu" />
             </button>
             <span className="barra-titulo">
-              SIVAD <span>/ Explorador epidemiológico</span>
+              <span>Explorador epidemiológico de dengue en Guerrero</span>
             </span>
           </div>
           <button
@@ -541,6 +598,24 @@ export default function App() {
                 ))}
               </select>
             </label>
+            {anios.length > 0 && (
+              <label>
+                Periodo
+                <select
+                  value={modoTemporal === "rango" ? "rango" : anioActual}
+                  onChange={(e) => elegirAnioRapido(e.target.value)}
+                >
+                  {modoTemporal === "rango" && periodoActual && (
+                    <option value="rango">{periodoActual.etiqueta}</option>
+                  )}
+                  {anios.map((a) => (
+                    <option key={a} value={String(a)}>
+                      {a}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <p className={`estado ${estado}`} role="status">
               {etiquetaEstado}
             </p>
